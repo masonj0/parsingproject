@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ config.APP_NAME }} - Analytical Report</title>
+    <style>
+        :root{color-scheme:light dark}
+        body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background-color:#f4f4f9;color:#333;margin:0;padding:20px;line-height:1.6}
+        .container{max-width:1400px;margin:auto;background-color:#fff;padding:20px;border-radius:8px;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+        .race.value-extreme { border-left: 8px solid #ff4444; } .race.value-high { border-left: 6px solid #ff8800; }
+        .race.value-good { border-left: 4px solid #00aa00; } .race.value-decent { border-left: 3px solid #0088cc; }
+        .favorites-row{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin:12px 0;padding:12px;background:#f8f9fa;border-radius:6px}
+        h1{color:#1a1a1a;border-bottom:3px solid #007bff;padding-bottom:10px}
+        .summary{background:#e7f3ff;padding:15px;border-radius:8px;margin-bottom:20px;border-left:4px solid #007bff}
+        .tabs{display:flex;border-bottom:2px solid #dee2e6;margin-bottom:20px;flex-wrap:wrap}
+        .tab{padding:10px 20px;cursor:pointer;background:#f8f9fa;border:1px solid #dee2e6;border-bottom:none;margin-right:2px;border-radius:4px 4px 0 0}
+        .tab.active{background:#007bff;color:white;border-color:#007bff}
+        .tab-content{display:none}.tab-content.active{display:block}
+        .race{border:1px solid #ddd;padding:15px;margin:10px 0;border-radius:8px;}
+        .head{display:flex;flex-wrap:wrap;align-items:center;gap:15px;font-weight:600;font-size:1.2em;margin-bottom:10px}
+        .pill{display:inline-block;padding:4px 12px;border-radius:12px;background:#e9ecef;color:#495057;font-size:.9rem;}
+        .value-score-pill{font-weight:bold;font-size:1rem}
+        .value-score-90plus{background:#ff4444;color:white} .value-score-80plus{background:#ff8800;color:white}
+        .value-score-70plus{background:#00aa00;color:white} .value-score-60plus{background:#0088cc;color:white}
+        .links a{text-decoration:none;background-color:#007bff;color:white;padding:8px 15px;border-radius:4px;margin-right:10px;}
+        @media (prefers-color-scheme:dark){
+            body{background-color:#121212;color:#e0e0e0} .container{background-color:#1e1e1e} h1{color:#e0e0e0;border-color:#4dabf7}
+            .summary{background-color:#2c3e50;border-left-color:#4dabf7} .tabs{border-color:#444}
+            .tab{background:#333;color:#ccc;border-color:#444} .tab.active{background:#4dabf7;color:#000;border-color:#4dabf7}
+            .race{border-color:#444} .favorites-row{background:#333} .pill{background:#333;color:#ccc} .links a{background-color:#4dabf7;color:#000}
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🎯 {{ config.APP_NAME }}</h1>
+    <div class="summary">
+        <strong>📊 ANALYSIS RESULTS:</strong> 
+        <b>{{ stats.races_after_dedup }}</b> unique races in cache. 
+        <b>{{ value_races | length }}</b> high-value races identified.
+        ⏱️ Analysis Runtime: <b>{{ "%.1f"|format(stats.duration_seconds) }}s</b>
+    </div>
+    {% set tab_map = {
+        'next-to-jump': next_to_jump_races, 'perfect-tipsheet': perfect_tips,
+        'all-races': all_races
+    } %}
+    {% set first_active_tab = namespace(name=none) %}
+    {% for name, data in tab_map.items() %}{% if data and not first_active_tab.name %}{% set first_active_tab.name = name %}{% endif %}{% endfor %}
+    <div class="tabs">
+        {% if next_to_jump_races %}<div class="tab" data-tab="next-to-jump" onclick="showTab('next-to-jump', this)">⚡ Next To Jump ({{ next_to_jump_races | length }})</div>{% endif %}
+        {% if perfect_tips %}<div class="tab" data-tab="perfect-tipsheet" onclick="showTab('perfect-tipsheet', this)">💎 Perfect Tipsheet ({{ perfect_tips | length }})</div>{% endif %}
+        {% if all_races %}<div class="tab" data-tab="all-races" onclick="showTab('all-races', this)">📋 All Races ({{ all_races | length }})</div>{% endif %}
+    </div>
+    {% macro render_race(race) %}
+    <div class="race {{ race.discipline }}" data-score="{{ race.value_score }}" data-utc-time="{{ race.utc_datetime.isoformat() if race.utc_datetime else '' }}">
+        <div class="head">
+            <span>{{ race.course }}</span> <span class="pill">{{ race.country }}</span>
+            <span class="pill local-time-display">{{ race.local_time }} {{ race.timezone_name }}</span>
+            {% if race.value_score > 0 %}<span class="pill value-score-pill {% if race.value_score >= 90 %}value-score-90plus{% elif race.value_score >= 80 %}value-score-80plus{% elif race.value_score >= 70 %}value-score-70plus{% else %}value-score-60plus{% endif %}">{{ "%.0f"|format(race.value_score) }}★</span>{% endif %}
+        </div>
+        <div class="favorites-row">
+            <div><strong>🥇 {{ (race.favorite.name or 'Unknown') if race.favorite else 'N/A' }}</strong>: {{ (race.favorite.odds_str or 'SP') if race.favorite else '' }}</div>
+            <div><strong>🥈 {{ (race.second_favorite.name or 'Unknown') if race.second_favorite else 'N/A' }}</strong>: {{ (race.second_favorite.odds_str or 'SP') if race.second_favorite else '' }}</div>
+        </div>
+        <div><strong>Field:</strong> {{ race.field_size }} runners | <strong>Type:</strong> {{ race.race_type }}</div>
+        <div class="links"><a href="{{ race.race_url }}" target="_blank" rel="noopener">📋 Racecard</a></div>
+    </div>
+    {% endmacro %}
+    {% if next_to_jump_races %}<div id="next-to-jump" class="tab-content"><h2>⚡ Next To Jump</h2>{% for race in next_to_jump_races %}{{ render_race(race) }}{% endfor %}</div>{% endif %}
+    {% if perfect_tips %}<div id="perfect-tipsheet" class="tab-content"><h2>💎 Perfect Tipsheet</h2>{% for race in perfect_tips %}{{ render_race(race) }}{% endfor %}</div>{% endif %}
+    {% if all_races %}<div id="all-races" class="tab-content"><h2>📋 All Races (by Score)</h2>{% for race in all_races %}{{ render_race(race) }}{% endfor %}</div>{% endif %}
+</div>
+<script>
+    function showTab(tabName, element){
+        document.querySelectorAll(".tab-content").forEach(c=>c.classList.remove("active"));
+        document.querySelectorAll(".tab").forEach(c=>c.classList.remove("active"));
+        document.getElementById(tabName).classList.add("active");
+        element.classList.add("active");
+    }
+    document.addEventListener("DOMContentLoaded", () => {
+        const firstTab = document.querySelector('.tab[data-tab="{{ first_active_tab.name }}"]');
+        if (firstTab) { showTab(firstTab.dataset.tab, firstTab); }
+        document.querySelectorAll('.race').forEach(race => {
+            const score = parseFloat(race.dataset.score || 0);
+            if (score >= 90) race.classList.add('value-extreme');
+            else if (score >= 80) race.classList.add('value-high');
+            else if (score >= 70) race.classList.add('value-good');
+            else if (score >= 60) race.classList.add('value-decent');
+        });
+        document.querySelectorAll('.local-time-display').forEach(el => {
+            const utcTime = el.closest('.race').dataset.utcTime;
+            if (utcTime) {
+                const localTime = new Date(utcTime);
+                el.textContent = localTime.toLocaleTimeString(navigator.language, { hour: '2-digit', minute: '2-digit', hour12: false }) + ' (Your Time)';
+            }
+        });
+    });
+</script>
+</body>
+</html>
