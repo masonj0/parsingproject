@@ -69,25 +69,109 @@ class RacingDataParser:
         soup = BeautifulSoup(html_content, 'html.parser')
 
         # --- Surgical Parser Dispatch ---
-        if "timeform.com" in html_content or soup.select_one(".w-racecard-grid-meeting"):
+        # Enhanced detection logic: check filename and content clues.
+        source_name_lower = source_file.lower()
+
+        if "timeform" in source_name_lower or "timeform.com" in html_content or soup.select_one(".w-racecard-grid-meeting"):
             logging.info("Detected Timeform format. Using surgical parser.")
             return self._parse_timeform_page(soup, source_file)
         
-        if "racingpost.com" in html_content or soup.select_one(".RC-meetingList"):
+        elif "racingpost" in source_name_lower or "racingpost.com" in html_content or soup.select_one(".RC-meetingList"):
             logging.info("Detected Racing Post format. Using surgical parser.")
             return self._parse_racing_post_page(soup, source_file)
 
-        if "equibase.com" in html_content or soup.select_one("#entries-index"):
+        elif "equibase" in source_name_lower or "equibase.com" in html_content or soup.select_one("#entries-index"):
             logging.info("Detected Equibase format. Using surgical parser.")
             return self._parse_equibase_page(soup, source_file)
 
+        elif any(keyword in source_name_lower for keyword in ["gbgb", "grireland", "thedogs"]) or "greyhound" in html_content.lower():
+            logging.info("Detected Greyhound format. Using surgical parser.")
+            return self._parse_greyhound_page(soup, source_file)
+
         # --- Fallback to Generic Parser ---
-        logging.info("Source not recognized. Using generic fallback parser.")
-        return self._parse_generic_html(soup, source_file)
+        else:
+            logging.info("Source not recognized. Using generic fallback parser.")
+            return self._parse_generic_html(soup, source_file)
 
     # =========================================================================
     # --- SURGICAL PARSERS ---
     # =========================================================================
+
+    def _parse_greyhound_page(self, soup: BeautifulSoup, source_file: str) -> List[Dict[str, Any]]:
+        """
+        Surgical parser for Greyhound race cards.
+        Looks for common patterns on sites like GBGB or The Dogs.
+        """
+        races = []
+        # A greyhound meeting might be contained in a 'card' or 'meeting' block
+        meeting_containers = soup.select('.greyhound-card, .meeting-card, .race-card, article.meeting')
+
+        if not meeting_containers:
+            meeting_containers = [soup] # Fallback to parsing the whole document
+
+        for meeting in meeting_containers:
+            try:
+                course_name_element = meeting.select_one('h2, h3, .meeting-name, .track-name')
+                course_name = course_name_element.get_text(strip=True) if course_name_element else "Unknown Course"
+
+                # Find individual races within the meeting
+                race_elements = meeting.select('.race-summary, .race-item, tr.race')
+                for race_el in race_elements:
+                    time_element = race_el.select_one('.race-time, .time')
+                    if not time_element:
+                        continue
+
+                    race_time = time_element.get_text(strip=True)
+                    race_id = self._generate_race_id(course_name, date.today(), race_time)
+
+                    # Extract trap/runner info
+                    runners = []
+                    trap_elements = race_el.select('.trap, .runner, .dog-runner')
+                    for trap_el in trap_elements:
+                        trap_num_el = trap_el.select_one('.trap-number, .trap-id')
+                        dog_name_el = trap_el.select_one('.dog-name, .runner-name')
+                        odds_el = trap_el.select_one('.odds, .price')
+
+                        if dog_name_el:
+                            dog_name = dog_name_el.get_text(strip=True)
+                            trap_num = trap_num_el.get_text(strip=True) if trap_num_el else 'TBC'
+                            # Prepend trap number to name for clarity
+                            runner_name = f"T{trap_num} {dog_name}"
+                            odds_str = odds_el.get_text(strip=True) if odds_el else "SP"
+
+                            runners.append({
+                                'name': runner_name,
+                                'odds_str': odds_str,
+                                'odds_decimal': convert_odds_to_fractional_decimal(odds_str)
+                            })
+
+                    valid_runners = sorted([r for r in runners if r['odds_decimal'] < 999.0], key=lambda x: x['odds_decimal'])
+
+                    race_data = {
+                        'id': race_id,
+                        'course': normalize_course_name(course_name),
+                        'race_time': parse_hhmm_any(race_time),
+                        'race_type': "Greyhound Race",
+                        'utc_datetime': None,
+                        'local_time': parse_hhmm_any(race_time),
+                        'timezone_name': "Europe/London", # Default for UK/IRE
+                        'field_size': len(runners),
+                        'country': "Unknown", # Could be refined later
+                        'discipline': "greyhound", # This is the key change
+                        'source_file': source_file,
+                        'race_url': "",
+                        'runners': runners,
+                        'favorite': valid_runners[0] if valid_runners else None,
+                        'second_favorite': valid_runners[1] if len(valid_runners) > 1 else None,
+                        'value_score': 0.0,
+                        'data_sources': [source_file]
+                    }
+                    races.append(race_data)
+            except Exception as e:
+                logging.error(f"Error parsing a Greyhound meeting container: {e}")
+                continue
+
+        return races
 
     def _parse_timeform_page(self, soup: BeautifulSoup, source_file: str) -> List[Dict[str, Any]]:
         """
