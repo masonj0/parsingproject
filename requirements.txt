@@ -1,8 +1,0 @@
-# Core libraries for HTTP requests, HTML/JSON parsing, and UI
-httpx==0.27.0
-beautifulsoup4==4.12.3
-jinja2==3.1.4
-tqdm==4.66.4
-
-# Backport for timezone support on Python versions older than 3.9
-backports.zoneinfo; python_version < "3.9"
