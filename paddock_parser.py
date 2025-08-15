@@ -23,6 +23,7 @@ from datetime import datetime, date
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from tqdm import tqdm
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 # Import the advanced parser provided by the team
 try:
@@ -79,15 +80,52 @@ class EnhancedValueScorer:
     """
     def __init__(self, config: Dict):
         self.config = config
-        self.weights = config.get("SCORER_WEIGHTS", {
+
+        default_weights = {
             "FIELD_SIZE_WEIGHT": 0.35, "FAVORITE_ODDS_WEIGHT": 0.45,
             "ODDS_SPREAD_WEIGHT": 0.15, "DATA_QUALITY_WEIGHT": 0.05
-        })
+        }
+
+        raw_weights = config.get("SCORER_WEIGHTS", default_weights)
+
+        # Validate and normalize weights
+        validated_weights = {}
+        total_weight = 0.0
+        valid = True
+
+        # Ensure all default keys are present in the raw_weights, falling back to default if not
+        for key in default_weights:
+            if key not in raw_weights:
+                raw_weights[key] = default_weights[key]
+
+        for key, value in raw_weights.items():
+            if not isinstance(value, (int, float)) or value < 0:
+                logging.warning(f"Invalid scorer weight for '{key}': {value}. Must be a non-negative number.")
+                valid = False
+                break
+            validated_weights[key] = float(value)
+            total_weight += float(value)
+
+        if not valid:
+            logging.warning("Using default scorer weights due to invalid configuration.")
+            self.weights = default_weights
+        elif total_weight == 0:
+            logging.warning("Total scorer weight is zero, which is not allowed. Using default weights.")
+            self.weights = default_weights
+        else:
+            # Normalize weights to sum to 1.0
+            self.weights = {key: value / total_weight for key, value in validated_weights.items()}
+            logging.info(f"Normalized scorer weights loaded: {self.weights}")
 
     def calculate_score(self, race: RaceData) -> float:
         """Calculates the final value score for a race."""
         if not race.runners or not race.favorite:
             return 0.0
+
+        # --- Edge Case Validation ---
+        if race.favorite and race.second_favorite and race.favorite.odds_decimal > race.second_favorite.odds_decimal:
+            logging.warning(f"Data inconsistency in race {race.id}: Favorite odds ({race.favorite.odds_decimal}) are greater than second favorite odds ({race.second_favorite.odds_decimal}).")
+        # --- End Validation ---
 
         # Ensure favorites have odds before calculating
         fav_odds = race.favorite.odds_decimal if race.favorite else 999.0
@@ -200,8 +238,21 @@ def run_persistent_engine(config: Dict, args: argparse.Namespace):
     logging.info(f"Engine is running. Paste data blocks followed by '{args.paste_sentinel}' on a new line.")
     logging.info("Press Ctrl+C to save and exit.")
 
+    last_processed_day = date.today()
     try:
         while True:
+            # --- Memory Leak Prevention: Daily Cache Reset ---
+            current_day = date.today()
+            if current_day != last_processed_day:
+                logging.info(f"New day detected. Clearing in-memory cache from {last_processed_day.strftime('%Y-%m-%d')}.")
+                races_by_id.clear()
+                last_processed_day = current_day
+                # Also update the cache file path for the new day
+                today_str = current_day.strftime("%Y-%m-%d")
+                cache_file = cache_dir / f"paddock_cache_{today_str}.json"
+                logging.info(f"Cache file updated to: {cache_file}")
+            # --- End Memory Leak Prevention ---
+
             print("\n" + "="*50)
             print(f" PASTE content, then type '{args.paste_sentinel}' and press Enter.")
             print("="*50)
@@ -227,6 +278,13 @@ def run_persistent_engine(config: Dict, args: argparse.Namespace):
             update_count = 0
             new_count = 0
             for race_dict in parsed_races_dicts:
+                # --- Essential Data Validation ---
+                required_fields = ['id', 'course', 'race_time']
+                if not all(race_dict.get(key) for key in required_fields):
+                    logging.warning(f"Skipping race due to missing essential data: {race_dict.get('id', 'N/A')}")
+                    continue
+                # --- End Validation ---
+
                 # Convert dicts to dataclasses for consistency and type safety
                 runners = [Runner(**r) for r in race_dict.get('runners', [])]
                 race_dict['runners'] = runners
@@ -253,18 +311,24 @@ def run_persistent_engine(config: Dict, args: argparse.Namespace):
             for race in races_list:
                 race.value_score = scorer.calculate_score(race)
 
-            # Save the updated cache
+            # Atomically save the updated cache to prevent data loss
             if not args.disable_cache_backup:
-                with open(cache_file, "w", encoding="utf-8") as f:
+                cache_file_tmp = cache_file.with_suffix('.json.tmp')
+                with open(cache_file_tmp, "w", encoding="utf-8") as f:
                     json.dump([asdict(race) for race in races_list], f, indent=2, default=str)
+                # Atomic rename operation
+                cache_file_tmp.rename(cache_file)
                 logging.info(f"Cache updated and saved to {cache_file}.")
 
     except KeyboardInterrupt:
         logging.info("\nCtrl+C detected. Saving final cache and exiting.")
         races_list = list(races_by_id.values())
         if not args.disable_cache_backup and races_list:
-            with open(cache_file, "w", encoding="utf-8") as f:
+            # Atomically save the final cache
+            cache_file_tmp = cache_file.with_suffix('.json.tmp')
+            with open(cache_file_tmp, "w", encoding="utf-8") as f:
                 json.dump([asdict(race) for race in races_list], f, indent=2, default=str)
+            cache_file_tmp.rename(cache_file)
             logging.info(f"Final cache of {len(races_list)} races saved to {cache_file}.")
         sys.exit(0)
     except Exception as e:
@@ -302,15 +366,12 @@ def run_batch_parse(config: Dict, args: Optional[argparse.Namespace]): # Allow O
     scorer = EnhancedValueScorer(config)
     races_by_id: Dict[str, RaceData] = {}
 
-    html_files = list(input_path.glob("*.html"))
+    # Broaden file discovery to include both .html and .htm files
+    html_files = list(input_path.glob("*.html")) + list(input_path.glob("*.htm"))
     if not html_files:
-        logging.warning(f"No .html files found in '{input_path}'.")
-        print(f"Warning: No HTML files found in '{input_path}'.")
-        # Optionally, you might want to check .htm as well
-        # html_files = list(input_path.glob("*.htm"))
-        # if not html_files:
-        #    print(f"Warning: No HTML files (.html or .htm) found in '{input_path}'.")
-        #    return
+        logging.warning(f"No .html or .htm files found in '{input_path}'.")
+        print(f"Warning: No HTML files (.html or .htm) found in '{input_path}'.")
+        return
 
     # Use tqdm for a progress bar
     for file_path in tqdm(html_files, desc="Parsing Files"):
@@ -319,20 +380,46 @@ def run_batch_parse(config: Dict, args: Optional[argparse.Namespace]): # Allow O
                 html_content = f.read()
             logging.info(f"Parsing file: {file_path.name}")
             # --- Use the new advanced parser ---
-            races_batch = parser.parse_racing_data(html_content, source_file=file_path.name)
+            parsed_races_dicts = parser.parse_racing_data(html_content, source_file=file_path.name)
             # --- End parsing ---
-            if races_batch:
-                smart_merge_race_data(races_by_id, races_batch)
-            else:
+
+            if not parsed_races_dicts:
                 logging.info(f"No races found in {file_path.name}")
+                continue
+
+            for race_dict in parsed_races_dicts:
+                # --- Essential Data Validation ---
+                required_fields = ['id', 'course', 'race_time']
+                if not all(race_dict.get(key) for key in required_fields):
+                    logging.warning(f"Skipping race due to missing essential data: {race_dict.get('id', 'N/A')}")
+                    continue
+                # --- End Validation ---
+
+                # Convert dicts to dataclasses for consistency and type safety
+                runners = [Runner(**r) for r in race_dict.get('runners', [])]
+                race_dict['runners'] = runners
+                race_dict['favorite'] = Runner(**race_dict['favorite']) if race_dict.get('favorite') else None
+                race_dict['second_favorite'] = Runner(**race_dict['second_favorite']) if race_dict.get('second_favorite') else None
+
+                valid_keys = {f.name for f in fields(RaceData)}
+                filtered_dict = {k: v for k, v in race_dict.items() if k in valid_keys}
+                new_race = RaceData(**filtered_dict)
+
+                if new_race.id in races_by_id:
+                    existing_race = races_by_id[new_race.id]
+                    races_by_id[new_race.id] = smart_merge_race_data(existing_race, new_race)
+                else:
+                    races_by_id[new_race.id] = new_race
         except Exception as e:
             logging.error(f"Error processing file {file_path.name}: {e}")
 
     if races_by_id:
-        sorted_races = sorted(races_by_id.values(), key=lambda r: r.value_score, reverse=True)
         # Score the merged races using the shared intelligence module
-        for race in sorted_races:
-             scorer.calculate_value_score(race) # Recalculate score after merge
+        for race in races_by_id.values():
+            race.value_score = scorer.calculate_score(race)
+
+        # Sort races after scoring
+        sorted_races = sorted(races_by_id.values(), key=lambda r: r.value_score, reverse=True)
 
         # Re-sort after scoring if needed, or sort once after scoring
         # As scoring is done in calculate_value_score which modifies the object,

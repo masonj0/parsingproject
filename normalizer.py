@@ -13,6 +13,11 @@ cornerstone of our professional architecture.
 import re
 from typing import Optional
 
+# Pre-compiled regex patterns for performance
+_COURSE_NAME_AT_REGEX = re.compile(r' at .*$')
+_COURSE_NAME_PAREN_REGEX = re.compile(r'\s*\([^)]*\)')
+_TIME_TEXT_REGEX = re.compile(r'(\d{1,2})[:.](\d{2})')
+
 def normalize_course_name(name: str) -> str:
     """
     Cleans and standardizes a racetrack name.
@@ -21,8 +26,8 @@ def normalize_course_name(name: str) -> str:
     if not name:
         return ""
     name = name.lower().strip()
-    name = re.sub(r' at .*$', '', name)  # Handles "Woodbine at Mohawk"
-    name = re.sub(r'\s*\([^)]*\)', '', name)  # Removes text in parentheses
+    name = _COURSE_NAME_AT_REGEX.sub('', name)  # Handles "Woodbine at Mohawk"
+    name = _COURSE_NAME_PAREN_REGEX.sub('', name)  # Removes text in parentheses
     replacements = {
         'park': '', 'raceway': '', 'racecourse': '', 'track': '',
         'stadium': '', 'greyhound': '', 'harness': ''
@@ -43,7 +48,7 @@ def map_discipline(discipline_name: str) -> str:
         return "greyhound"
     if "harness" in d_lower or "trot" in d_lower or "standardbred" in d_lower:
         return "harness"
-    if "jump" in d_lower or "chase" in d_lower or "hurdle" in d_lower:
+    if "jump" in d_lower or "chase" in d_lower or "hurdle" in d_lower or "national hunt" in d_lower:
         return "jump"
     return "thoroughbred"
 
@@ -55,7 +60,7 @@ def parse_hhmm_any(time_text: str) -> Optional[str]:
     if not time_text:
         return None
     
-    match = re.search(r'(\d{1,2})[:.](\d{2})', str(time_text))
+    match = _TIME_TEXT_REGEX.search(str(time_text))
     if not match:
         return None
     

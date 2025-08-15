@@ -60,9 +60,27 @@ def setup_logging(log_file: str):
 # --- CORE DATA & STATE MANAGEMENT ---
 # =============================================================================
 
+def build_httpx_client_kwargs(config: Dict) -> Dict[str, Any]:
+    """
+    Builds kwargs for httpx.AsyncClient with corporate proxy and CA support.
+    - HTTP_CLIENT.VERIFY_SSL: bool (default True)
+    - HTTP_CLIENT.CA_BUNDLE: path to corporate root CA (optional)
+    - HTTP_CLIENT.PROXIES: dict or string accepted by httpx (optional)
+    """
+    http_client = config.get("HTTP_CLIENT", {})
+    verify_ssl = http_client.get("VERIFY_SSL", True)
+    ca_bundle = http_client.get("CA_BUNDLE")  # e.g., "C:/company/ca.pem" or "/etc/ssl/certs/corp-ca.pem"
+    proxies = http_client.get("PROXIES")      # e.g., {"http": "http://user:pass@proxy:8080", "https": "..."} or "http://..."
+
+    verify: Any = ca_bundle if ca_bundle else verify_ssl
+    kwargs: Dict[str, Any] = {"verify": verify}
+    if proxies:
+        kwargs["proxies"] = proxies
+    return kwargs
+
 def generate_race_id(course: str, race_date: date, time: str) -> str:
     """Creates a unique, deterministic ID for a race."""
-    key = f"{normalize_course_name(course)}|{race_date.isoformat()}|{re.sub(r'[^\\d]', '', time or '')}"
+    key = f"{normalize_course_name(course)}|{race_date.isoformat()}|{re.sub(r'[^\d]', '', time or '')}"
     return hashlib.sha1(key.encode()).hexdigest()[:12]
 
 def load_alert_state(state_file_path: Path) -> Set[str]:
@@ -194,7 +212,7 @@ async def perform_scan_and_alert(config: Dict, scorer: EnhancedValueScorer, aler
     logging.info("="*20 + " Starting New Scan Cycle " + "="*20)
     all_races: Dict[str, RaceData] = {}
     
-    async with httpx.AsyncClient(verify=False) as client:
+    async with httpx.AsyncClient(**build_httpx_client_kwargs(config)) as client:
         fetch_tasks = [
             fetch_url(client, source["url"], config) for source in config["SOFT_TARGET_SOURCES"]
         ]
