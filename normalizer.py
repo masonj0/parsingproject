@@ -24,7 +24,7 @@ def normalize_course_name(name: str) -> str:
     name = re.sub(r' at .*$', '', name)  # Handles "Woodbine at Mohawk"
     name = re.sub(r'\s*\([^)]*\)', '', name)  # Removes text in parentheses
     replacements = {
-        'park': '', 'raceway': '', 'racecourse': '',
+        'park': '', 'raceway': '', 'racecourse': '', 'track': '',
         'stadium': '', 'greyhound': '', 'harness': ''
     }
     for old, new in replacements.items():
