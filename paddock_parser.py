@@ -23,6 +23,7 @@ from datetime import datetime, date
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from tqdm import tqdm
+from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 # Import the advanced parser provided by the team
 try:
@@ -316,20 +317,39 @@ def run_batch_parse(config: Dict, args: Optional[argparse.Namespace]): # Allow O
                 html_content = f.read()
             logging.info(f"Parsing file: {file_path.name}")
             # --- Use the new advanced parser ---
-            races_batch = parser.parse_racing_data(html_content, source_file=file_path.name)
+            parsed_races_dicts = parser.parse_racing_data(html_content, source_file=file_path.name)
             # --- End parsing ---
-            if races_batch:
-                smart_merge_race_data(races_by_id, races_batch)
-            else:
+
+            if not parsed_races_dicts:
                 logging.info(f"No races found in {file_path.name}")
+                continue
+
+            for race_dict in parsed_races_dicts:
+                # Convert dicts to dataclasses for consistency and type safety
+                runners = [Runner(**r) for r in race_dict.get('runners', [])]
+                race_dict['runners'] = runners
+                race_dict['favorite'] = Runner(**race_dict['favorite']) if race_dict.get('favorite') else None
+                race_dict['second_favorite'] = Runner(**race_dict['second_favorite']) if race_dict.get('second_favorite') else None
+
+                valid_keys = {f.name for f in fields(RaceData)}
+                filtered_dict = {k: v for k, v in race_dict.items() if k in valid_keys}
+                new_race = RaceData(**filtered_dict)
+
+                if new_race.id in races_by_id:
+                    existing_race = races_by_id[new_race.id]
+                    races_by_id[new_race.id] = smart_merge_race_data(existing_race, new_race)
+                else:
+                    races_by_id[new_race.id] = new_race
         except Exception as e:
             logging.error(f"Error processing file {file_path.name}: {e}")
 
     if races_by_id:
-        sorted_races = sorted(races_by_id.values(), key=lambda r: r.value_score, reverse=True)
         # Score the merged races using the shared intelligence module
-        for race in sorted_races:
-             scorer.calculate_value_score(race) # Recalculate score after merge
+        for race in races_by_id.values():
+            race.value_score = scorer.calculate_score(race)
+
+        # Sort races after scoring
+        sorted_races = sorted(races_by_id.values(), key=lambda r: r.value_score, reverse=True)
 
         # Re-sort after scoring if needed, or sort once after scoring
         # As scoring is done in calculate_value_score which modifies the object,

@@ -24,7 +24,7 @@ def normalize_course_name(name: str) -> str:
     name = re.sub(r' at .*$', '', name)  # Handles "Woodbine at Mohawk"
     name = re.sub(r'\s*\([^)]*\)', '', name)  # Removes text in parentheses
     replacements = {
-        'park': '', 'raceway': '', 'racecourse': '',
+        'park': '', 'raceway': '', 'racecourse': '', 'track': '',
         'stadium': '', 'greyhound': '', 'harness': ''
     }
     for old, new in replacements.items():
@@ -43,7 +43,7 @@ def map_discipline(discipline_name: str) -> str:
         return "greyhound"
     if "harness" in d_lower or "trot" in d_lower or "standardbred" in d_lower:
         return "harness"
-    if "jump" in d_lower or "chase" in d_lower or "hurdle" in d_lower:
+    if "jump" in d_lower or "chase" in d_lower or "hurdle" in d_lower or "national hunt" in d_lower:
         return "jump"
     return "thoroughbred"
 
