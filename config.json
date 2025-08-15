@@ -1,0 +1,132 @@
+{
+  "SCHEMA_VERSION": "1.4",
+  "APP_NAME": "Paddock Parser Toolkit",
+  "INPUT_DIR": "html_input",
+  "DEFAULT_OUTPUT_DIR": "output",
+  "LOG_FILE": "app.log",
+  "TEMPLATE_SCANNER": "template_scanner.html",
+  "TEMPLATE_PADDOCK": "template_paddock.html",
+
+  "HTTP_CLIENT": {
+    "REQUEST_TIMEOUT": 20,
+    "VERIFY_SSL": true
+  },
+
+  "HTTP_HEADERS": {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Accept-Language": "en-US,en;q=0.9"
+  },
+  "PROXY_VIEWERS": [
+    {
+      "ENABLED": true,
+      "TOOL_URL": "https://codebeautify.org/source-code-viewer?url={target_url}",
+      "LINK_TEXT": "Proxy (CodeBeautify)"
+    },
+    {
+      "ENABLED": false,
+      "TOOL_URL": "https://www.view-page-source.com/?url={target_url}",
+      "LINK_TEXT": "Proxy (ViewPageSource)"
+    },
+    {
+      "ENABLED": false,
+      "TOOL_URL": "https://www.adlift.com/seo-tools/source-code-viewer/?url={target_url}",
+      "LINK_TEXT": "Proxy (AdLift SEO)"
+    }
+  ],
+  "DATA_SOURCES": [
+    {
+      "title": "🌟 Premium Global Sources",
+      "sites": [
+        {"name": "Timeform (Full Race List)", "url": "https://www.timeform.com/horse-racing/racecards", "enabled": true},
+        {"name": "At The Races (UK/IRE)", "url": "https://www.attheraces.com/racecards", "enabled": true},
+        {"name": "Racing TV (UK/IRE)", "url": "https://www.racingtv.com/racecards", "enabled": true},
+        {"name": "Sporting Life (UK/Global)", "url": "https://www.sportinglife.com/racing/racecards", "enabled": true},
+        {"name": "Sky Sports Racing (UK/Global)", "url": "https://www.skysports.com/racing/racecards", "enabled": true},
+        {"name": "Oddschecker (Odds Comparison)", "url": "https://www.oddschecker.com/horse-racing", "enabled": true},
+        {"name": "Betfair Exchange (Global)", "url": "https://www.betfair.com/exchange/plus/horse-racing", "enabled": true},
+        {"name": "Horse Racing Nation (Entries)", "url": "https://www.horseracingnation.com/entries", "enabled": true},
+        {"name": "BRISnet (US Premium Data)", "url": "https://www.brisnet.com/racing-and-handicapping/daily-handicapping-selections", "enabled": true}
+      ]
+    },
+    {
+      "title": "🏆 North American Authorities & ADWs",
+      "sites": [
+        {"name": "Equibase Entries (Full List)", "url": "https://www.equibase.com/static/entry/index.html?track=list&revid=1", "enabled": true},
+        {"name": "Daily Racing Form (DRF) Entries", "url": "https://entries.drf.com/entries", "enabled": true},
+        {"name": "FanDuel Racing (Full List)", "url": "https://racing.fanduel.com/races", "enabled": true},
+        {"name": "TwinSpires (Today's Races)", "url": "https://www.twinspires.com/races", "enabled": true},
+        {"name": "1/ST BET (Stronach Group)", "url": "https://1st.com/bet/tracks", "enabled": true},
+        {"name": "NYRA Bets", "url": "https://www.nyrabets.com/racing", "enabled": true},
+        {"name": "Xpressbet", "url": "https://www.xpressbet.com/races", "enabled": true}
+      ]
+    },
+    {
+      "title": "🇪🇺 European Authorities & Markets",
+      "sites": [
+        {"name": "Racing Post (UK/IRE Race Cards)", "url": "https://www.racingpost.com/racecards/", "enabled": true},
+        {"name": "France Galop (France)", "url": "https://www.france-galop.com/fr/courses/reunions-courses", "enabled": true},
+        {"name": "Deutscher Galopp (Germany)", "url": "https://www.deutscher-galopp.de/gr/renntage/rennen.php", "enabled": true},
+        {"name": "Svensk Galopp (Sweden)", "url": "https://www.svenskgalopp.se/starter-och-resultat", "enabled": true},
+        {"name": "PMU (France)", "url": "https://www.pmu.fr/turf/", "enabled": true}
+      ]
+    },
+    {
+      "title": "🌏 Asia-Pacific & Rest of World",
+      "sites": [
+        {"name": "TAB (Australia)", "url": "https://www.tab.com.au/racing", "enabled": true},
+        {"name": "Punters.com.au (Australia)", "url": "https://www.punters.com.au/horse-racing-form-guide/", "enabled": true},
+        {"name": "Racing Australia (National Fields)", "url": "https://racingaustralia.horse/Fields/NationalFields.aspx", "enabled": true},
+        {"name": "Hong Kong Jockey Club (HKJC)", "url": "https://racing.hkjc.com/racing/information/English/Racing/RaceCard.aspx", "enabled": true},
+        {"name": "JRA (Japan)", "url": "https://japanracing.jp/en/racing/result/index.html", "enabled": true},
+        {"name": "Gold Circle (South Africa)", "url": "https://www.goldcircle.co.za/race-cards/", "enabled": true},
+        {"name": "Emirates Racing Authority (UAE)", "url": "https://emiratesracing.com/race-calendar", "enabled": true}
+      ]
+    },
+    {
+      "title": "🏇 Specialized Disciplines (Harness & Greyhound)",
+      "sites": [
+        {"name": "USTA (US Harness Entries)", "url": "https://racing.ustrotting.com/goto.aspx?target=entries", "enabled": true},
+        {"name": "Standardbred Canada (Entries/Results)", "url": "https://www.standardbredcanada.ca/racing/entries", "enabled": true},
+        {"name": "Harness Racing Australia", "url": "https://www.harness.org.au/racing/fields/", "enabled": true},
+        {"name": "GBGB (UK Greyhounds)", "url": "https://www.gbgb.org.uk/racecards/", "enabled": true},
+        {"name": "Greyhound Racing Ireland", "url": "https://www.grireland.ie/race-cards/", "enabled": true},
+        {"name": "The Dogs (AUS Greyhounds)", "url": "https://www.thedogs.com.au/racing/today", "enabled": true}
+      ]
+    },
+    {
+      "title": "⚙️ High-Value Data Feeds (JSON/API)",
+      "sites": [
+        {"name": "RacingAndSports (Global JSON)", "url": "https://www.racingandsports.com.au/todays-racing-json-v2", "enabled": true},
+        {"name": "Sporting Life (API)", "url": "https://www.sportinglife.com/api/horse-racing/race?date_start={date_str_iso}&date_end={date_str_iso}", "enabled": true},
+        {"name": "Racing Post (API Endpoint)", "url": "https://www.racingpost.com/racecards/data?race_type=further_races&date={date_str_iso}", "enabled": true}
+      ]
+    }
+  ],
+  "TIMEZONES": {
+    "TRACKS": {
+      "assiniboia-downs": "America/Winnipeg", 
+      "belmont-park": "America/New_York", 
+      "woodbine": "America/Toronto"
+    },
+    "COUNTRIES": {
+      "GB": "Europe/London", 
+      "IE": "Europe/Dublin", 
+      "US": "America/New_York",
+      "FR": "Europe/Paris", 
+      "AU": "Australia/Sydney", 
+      "CA": "America/Toronto"
+    },
+    "ABBREVIATIONS": { 
+      "ET": "America/New_York", 
+      "CT": "America/Chicago" 
+    }
+  },
+  "SCORER_WEIGHTS": {
+    "FIELD_SIZE_WEIGHT": 0.35, 
+    "FAVORITE_ODDS_WEIGHT": 0.45,
+    "ODDS_SPREAD_WEIGHT": 0.15, 
+    "DATA_QUALITY_WEIGHT": 0.05
+  }
+}

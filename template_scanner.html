@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ app_name }} - Quick Strike Scan Report</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            background-color: #f4f7f9;
+            color: #334;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: auto;
+            background: #ffffff;
+            padding: 25px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.08);
+        }
+        h1 {
+            color: #1a5276;
+            border-bottom: 3px solid #3498db;
+            padding-bottom: 10px;
+            margin-top: 0;
+        }
+        .race-card {
+            border: 1px solid #e2e8f0;
+            border-left: 5px solid #3498db;
+            border-radius: 8px;
+            margin-bottom: 25px;
+            padding: 20px;
+            background-color: #fafcff;
+            transition: box-shadow 0.3s ease;
+        }
+        .race-card:hover {
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .race-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+        }
+        .race-header h3 {
+            margin: 0;
+            font-size: 1.4em;
+            color: #2c3e50;
+        }
+        .race-details {
+            font-size: 1em;
+            color: #566573;
+            font-weight: 500;
+        }
+        .entries-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        .entries-table th, .entries-table td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        .entries-table th {
+            background-color: #f1f5f9;
+            font-weight: 600;
+            color: #475569;
+        }
+        .source-url {
+            font-size: 0.85em;
+            color: #7f8c8d;
+            text-align: right;
+            margin-top: 15px;
+        }
+        .source-url a {
+            color: #3498db;
+            text-decoration: none;
+        }
+        .source-url a:hover {
+            text-decoration: underline;
+        }
+        .no-races {
+            background-color: #fffbe6;
+            border: 1px solid #fdd835;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+            font-size: 1.1em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>{{ app_name }} - Quick Strike Scan Report</h1>
+        <p>This is a live output view of the data collected by the automated scanner. The data below reflects the latest successful scan.</p>
+
+        {% if races %}
+            {% for race in races %}
+            <div class="race-card">
+                <div class="race-header">
+                    <h3>{{ race.course_name }}</h3>
+                    <div class="race-details">
+                        <span>Time: <strong>{{ race.race_time }}</strong></span> |
+                        <span>Discipline: <strong>{{ race.discipline | title }}</strong></span>
+                    </div>
+                </div>
+                {% if race.entries %}
+                <table class="entries-table">
+                    <thead>
+                        <tr>
+                            <th>Horse Name</th>
+                            <th>Odds (String)</th>
+                            <th>Odds (Decimal)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for entry in race.entries %}
+                        <tr>
+                            <td>{{ entry.horse_name }}</td>
+                            <td>{{ entry.odds_str }}</td>
+                            <td>{{ '%.2f'|format(entry.odds_decimal) if entry.odds_decimal != 999.0 else 'N/A' }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% else %}
+                <p>No entries found for this race.</p>
+                {% endif %}
+                <div class="source-url">
+                    Source: <a href="{{ race.source_url }}" target="_blank">{{ race.source }}</a>
+                </div>
+            </div>
+            {% endfor %}
+        {% else %}
+            <div class="no-races">
+                <p><strong>No race data was found during the scan.</strong></p>
+                <p>This could be due to no races being scheduled, or a temporary issue with the data sources.</p>
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>
