@@ -302,15 +302,12 @@ def run_batch_parse(config: Dict, args: Optional[argparse.Namespace]): # Allow O
     scorer = EnhancedValueScorer(config)
     races_by_id: Dict[str, RaceData] = {}
 
-    html_files = list(input_path.glob("*.html"))
+    # Broaden file discovery to include both .html and .htm files
+    html_files = list(input_path.glob("*.html")) + list(input_path.glob("*.htm"))
     if not html_files:
-        logging.warning(f"No .html files found in '{input_path}'.")
-        print(f"Warning: No HTML files found in '{input_path}'.")
-        # Optionally, you might want to check .htm as well
-        # html_files = list(input_path.glob("*.htm"))
-        # if not html_files:
-        #    print(f"Warning: No HTML files (.html or .htm) found in '{input_path}'.")
-        #    return
+        logging.warning(f"No .html or .htm files found in '{input_path}'.")
+        print(f"Warning: No HTML files (.html or .htm) found in '{input_path}'.")
+        return
 
     # Use tqdm for a progress bar
     for file_path in tqdm(html_files, desc="Parsing Files"):
