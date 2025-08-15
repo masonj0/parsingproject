@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+
 """
 Paddock Parser Toolkit - Configuration Loader (config.py)
 
