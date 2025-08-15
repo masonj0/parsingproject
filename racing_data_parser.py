@@ -84,7 +84,11 @@ class RacingDataParser:
             logging.info("Detected Equibase format. Using surgical parser.")
             return self._parse_equibase_page(soup, source_file)
 
-        elif any(keyword in source_name_lower for keyword in ["gbgb", "grireland", "thedogs"]) or "greyhound" in html_content.lower():
+        elif "grireland.ie" in html_content or soup.select_one("ul.upcoming-meetings"):
+            logging.info("Detected GRI Meetings format. Using surgical parser.")
+            return self._parse_grireland_meetings_page(soup, source_file)
+
+        elif any(keyword in source_name_lower for keyword in ["gbgb", "thedogs"]) or "greyhound" in html_content.lower():
             logging.info("Detected Greyhound format. Using surgical parser.")
             return self._parse_greyhound_page(soup, source_file)
 
@@ -169,6 +173,57 @@ class RacingDataParser:
                     races.append(race_data)
             except Exception as e:
                 logging.error(f"Error parsing a Greyhound meeting container: {e}")
+                continue
+
+        return races
+
+    def _parse_grireland_meetings_page(self, soup: BeautifulSoup, source_file: str) -> List[Dict[str, Any]]:
+        """
+        Surgical parser for the Greyhound Racing Ireland (grireland.ie) meetings list page.
+        """
+        races = []
+        meeting_links = soup.select("ul.upcoming-meetings li a")
+
+        for link in meeting_links:
+            try:
+                href = link.get("href")
+                if not href:
+                    continue
+
+                # Text format is "DD-Mon-YY - Course Name"
+                link_text = link.get_text(strip=True)
+                parts = link_text.split(" - ", 1)
+                if len(parts) != 2:
+                    continue
+
+                date_str, course_name = parts
+
+                # The page doesn't have individual race times, so we use the date as a placeholder
+                # and generate an ID based on the meeting.
+                race_id = self._generate_race_id(course_name, date.today(), date_str)
+
+                race_data = {
+                    'id': race_id,
+                    'course': normalize_course_name(course_name),
+                    'race_time': date_str, # Using date as placeholder for time
+                    'race_type': "Greyhound Meeting",
+                    'utc_datetime': None,
+                    'local_time': date_str,
+                    'timezone_name': "Europe/Dublin", # Ireland
+                    'field_size': 0, # Not available on this page
+                    'country': "IRE",
+                    'discipline': "greyhound",
+                    'source_file': source_file,
+                    'race_url': f"https://www.grireland.ie{href}",
+                    'runners': [],
+                    'favorite': None,
+                    'second_favorite': None,
+                    'value_score': 0.0,
+                    'data_sources': [source_file]
+                }
+                races.append(race_data)
+            except Exception as e:
+                logging.error(f"Error parsing a grireland.ie meeting link: {e}")
                 continue
 
         return races
