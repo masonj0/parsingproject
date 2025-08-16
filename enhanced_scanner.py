@@ -36,6 +36,7 @@ from sources import (
     FieldConfidence,
     register_adapter,
 )
+from normalizer import NormalizedRace
 
 # Import the configuration loader
 try:
@@ -84,14 +85,6 @@ class TimeformAdapter:
     """
     source_id = "timeform"
 
-    def _find_site_config(self, config: dict) -> dict | None:
-        """Finds the specific configuration for Timeform from the main config."""
-        for category in config.get("DATA_SOURCES", []):
-            for site in category.get("sites", []):
-                if "timeform" in site.get("name", "").lower():
-                    return site
-        return None
-
     def _parse_runner_data(self, race_soup: BeautifulSoup) -> List[RunnerDoc]:
         """Parses the runner data from a single race page using the correct selectors."""
         runners = []
@@ -104,12 +97,6 @@ class TimeformAdapter:
                 jockey_el = row.select_one("td.rp-td-horse-jockey a")
                 trainer_el = row.select_one("td.rp-td-horse-trainer a")
                 odds_el = row.select_one("td.rp-td-horse-prices a.price")
-
-
-
-                # Odds are important for the analysis engine, but we can proceed without them
-                # if they are not available for a particular runner.
-
 
                 # Odds are important for the analysis engine, but we can proceed without them
                 # if they are not available for a particular runner.
@@ -152,7 +139,12 @@ class TimeformAdapter:
         Fetches the Timeform racecards page, then fetches each individual
         race page to extract detailed runner information.
         """
-        site_config = self._find_site_config(config)
+        site_config = None
+        for source in config.get("SCRAPER", {}).get("sources", []):
+            if source.get("id") == self.source_id:
+                site_config = source
+                break
+
         if not site_config:
             logging.error("Timeform site configuration not found.")
             return []
@@ -223,19 +215,6 @@ class TimeformAdapter:
         return race_docs
 
 
-
-
-
-                # Parse 
-
-
-
-
-
-
-      
-
-      
 
 # - Helper Function for Filename Sanitization -
 def sanitize_filename(name: str) -> str:
@@ -453,6 +432,142 @@ async def run_automated_scan(config: Dict, args: Optional[argparse.Namespace]):
     logging.info("-" * 50)
     logging.info("Quick Strike Scan Complete.")
     logging.info("-" * 50)
+
+
+@register_adapter
+class RacingPostAdapter:
+    """
+    Adapter for fetching racecards from Racing Post.
+    This adapter performs a two-stage fetch:
+    1. Fetches the main racecards page to get a list of all races.
+    2. Fetches the individual page for each race to get runner details.
+    """
+    source_id = "racingpost"
+
+    def _parse_runner_data(self, race_soup: BeautifulSoup) -> List[RunnerDoc]:
+        """Parses the runner data from a single race page using placeholder selectors."""
+        # TO-DO: The selectors below are placeholders and need to be updated
+        # based on the actual HTML structure of a Racing Post race detail page.
+        runners = []
+        # Placeholder: This selector should target each row representing a runner.
+        runner_rows = race_soup.select("div.rp-horse-row")
+
+        for row in runner_rows:
+            try:
+                # Placeholder selectors for each piece of data
+                horse_name_el = row.select_one("a.rp-horse-name")
+                saddle_cloth_el = row.select_one("span.rp-saddle-cloth")
+                jockey_el = row.select_one("a.rp-jockey-name")
+                trainer_el = row.select_one("a.rp-trainer-name")
+                odds_el = row.select_one("span.rp-bet-odds")
+
+                if not all([horse_name_el, saddle_cloth_el, jockey_el, trainer_el]):
+                    continue
+
+                horse_name = horse_name_el.get_text(strip=True)
+                saddle_cloth = saddle_cloth_el.get_text(strip=True)
+                jockey_name = jockey_el.get_text(strip=True)
+                trainer_name = trainer_el.get_text(strip=True)
+                odds = odds_el.get_text(strip=True) if odds_el else None
+
+                runner_id = f"{saddle_cloth}-{horse_name}".lower().replace(" ", "-")
+
+                runners.append(RunnerDoc(
+                    runner_id=runner_id,
+                    name=FieldConfidence(horse_name, 0.9, "a.rp-horse-name"),
+                    number=FieldConfidence(saddle_cloth, 0.9, "span.rp-saddle-cloth"),
+                    odds=FieldConfidence(odds, 0.9, "span.rp-bet-odds") if odds else None,
+                    jockey=FieldConfidence(jockey_name, 0.9, "a.rp-jockey-name"),
+                    trainer=FieldConfidence(trainer_name, 0.9, "a.rp-trainer-name")
+                ))
+            except Exception as e:
+                logging.error(f"Failed to parse a runner row on Racing Post: {e}", exc_info=True)
+        return runners
+
+    async def fetch(self, config: dict) -> list[RawRaceDocument]:
+        """
+        Fetches the Racing Post racecards page, then fetches each individual
+        race page to extract detailed runner information.
+        """
+        site_config = None
+        for source in config.get("SCRAPER", {}).get("sources", []):
+            if source.get("id") == self.source_id:
+                site_config = source
+                break
+
+        if not site_config:
+            logging.error("Racing Post site configuration not found.")
+            return []
+
+        base_url = site_config.get("base_url")
+        target_url = site_config.get("url")
+
+        if not base_url or not target_url:
+            logging.error("Racing Post base_url or url not configured.")
+            return []
+
+        # 1. Fetch the main race list page
+        logging.info("Fetching Racing Post race list...")
+        try:
+            list_response = await resilient_get(target_url, config=config)
+            list_html = list_response.text
+        except Exception as e:
+            logging.error(f"An error occurred while fetching Racing Post race list: {e}")
+            return []
+
+        # Save for debugging
+        with open("debug_racingpost_list.html", "w", encoding="utf-8") as f:
+            f.write(list_html)
+
+        # 2. Parse the race list to get individual race URLs
+        soup = BeautifulSoup(list_html, 'lxml')
+        race_docs = []
+        # TO-DO: Implement the actual selector for race links.
+        race_links = soup.select('a.race-card-link') # Placeholder
+
+        for link in race_links:
+            href = link.get('href')
+            if not href: continue
+
+            detail_url = f"{base_url}{href}"
+
+            # 3. Fetch each individual race page
+            logging.info(f"Fetching detail for race: {href}")
+            try:
+                detail_response = await resilient_get(detail_url, config=config)
+                detail_html = detail_response.text
+
+                track_key = "placeholder_track" # Placeholder
+                race_key = "placeholder_race" # Placeholder
+
+                race_docs.append(RawRaceDocument(
+                    source_id=self.source_id,
+                    fetched_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+                    track_key=track_key,
+                    race_key=race_key,
+                    start_time_iso=None, # Placeholder
+                    runners=self._parse_runner_data(BeautifulSoup(detail_html, 'lxml')),
+                    extras={"race_url": FieldConfidence(detail_url, 0.95)}
+                ))
+            except Exception as e:
+                logging.error(f"Failed to fetch or parse detail for race at {detail_url}: {e}")
+
+        return race_docs
+
+    def parse(self, raw_document: RawRaceDocument) -> Optional[NormalizedRace]:
+        """
+        Parses the content of a single race detail page.
+        """
+        # Since parsing is done during fetch for this adapter, we just return the data
+        return NormalizedRace(
+            race_id=f"{raw_document.track_key}_{raw_document.race_key}",
+            source=self.source_id,
+            url=raw_document.extras["race_url"].value,
+            race_title="Placeholder Race Title", # Placeholder
+            runners=[asdict(runner) for runner in raw_document.runners],
+            fetched_at=raw_document.fetched_at,
+            version="2.0"
+        )
 
 
 # --- Main Execution Guard ---
