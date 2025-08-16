@@ -194,6 +194,7 @@ def smart_merge_race_data(existing_race: RaceData, new_race: RaceData) -> RaceDa
     if not existing_race.country or existing_race.country == "Unknown": existing_race.country = new_race.country
     if not existing_race.discipline or existing_race.discipline == "Unknown": existing_race.discipline = new_race.discipline
     if not existing_race.race_type or existing_race.race_type == "Unknown Type": existing_race.race_type = new_race.race_type
+    if new_race.field_size > existing_race.field_size: existing_race.field_size = new_race.field_size
     
     # Combine data sources
     existing_race.data_sources = sorted(list(set(existing_race.data_sources + new_race.data_sources)))
@@ -437,8 +438,8 @@ def run_batch_parse(config: Dict, args: Optional[argparse.Namespace]): # Allow O
             races_as_dicts = [asdict(race) for race in sorted_races]
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(races_as_dicts, f, indent=4)
-            logging.info(f"✅ Final report saved to {output_file}")
-            print(f"✅ Success! Final report saved to {output_file}")
+            logging.info(f"[SUCCESS] Final report saved to {output_file}")
+            print(f"[SUCCESS] Final report saved to {output_file}")
             # --- Generate HTML Report ---
             try:
                 template_dir = Path('.') # Assuming template is in the current directory
@@ -452,18 +453,18 @@ def run_batch_parse(config: Dict, args: Optional[argparse.Namespace]): # Allow O
                 html_output_file = output_dir / f"paddock_report_{today_str}.html"
                 with open(html_output_file, 'w', encoding='utf-8') as f:
                     f.write(html_output)
-                logging.info(f"✅ HTML report saved to {html_output_file}")
-                print(f"✅ Success! HTML report saved to {html_output_file}")
+                logging.info(f"[SUCCESS] HTML report saved to {html_output_file}")
+                print(f"[SUCCESS] HTML report saved to {html_output_file}")
             except Exception as e:
-                logging.error(f"❌ Failed to generate HTML report: {e}")
+                logging.error(f"[ERROR] Failed to generate HTML report: {e}")
                 print(f"Warning: Could not generate HTML report: {e}")
             # --- End Generate HTML Report ---
         except Exception as e:
-            logging.error(f"❌ Failed to save final report: {e}")
+            logging.error(f"[ERROR] Failed to save final report: {e}")
             print(f"Error: Failed to save report: {e}")
     else:
-        logging.info("⚠️ No races were found or parsed successfully.")
-        print("⚠️ No races were found or parsed successfully.")
+        logging.warning("No races were found or parsed successfully.")
+        print("[WARNING] No races were found or parsed successfully.")
 
     logging.info("-" * 50)
     logging.info("Batch parsing complete.")

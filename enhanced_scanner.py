@@ -2,7 +2,16 @@
 """Paddock Parser Toolkit - Enhanced Scanner & Prefetcher Module (v1.4)
 This module is now fully integrated with the "enabled" flag in config.json.
 All functions, including the scanner, prefetcher, and connection tester,
-will now ignore any data source that is marked as disabled."""
+will now ignore any data source that is marked as disabled.
+
+Future Exploration Ideas:
+- When making HTTP requests, consider setting the 'Referer' header to a common
+  source like 'https://www.google.com/' or the base URL of the target site
+  itself, as many APIs check this.
+- For sites that are difficult to scrape, inspect the Network tab in browser
+  developer tools for hidden API calls, as we discovered with Sporting Life
+  and UKRacingForm.
+"""
 import sys
 import asyncio
 import argparse  # <-- Added import
@@ -77,14 +86,14 @@ async def fetch_url(client: httpx.AsyncClient, url: str, config: Dict) -> str:
         # Use the client passed in, which has proxy/CA settings
         response = await client.get(url, headers=headers, timeout=timeout)
         response.raise_for_status()
-        logging.info(f"✅ Fetched {len(response.text)} chars from {url}")
+        logging.info(f"[SUCCESS] Fetched {len(response.text)} chars from {url}")
         return response.text
     except httpx.HTTPStatusError as e:
-        logging.error(f"❌ HTTP Error {e.response.status_code} for {url}: {e}")
+        logging.error(f"[ERROR] HTTP Error {e.response.status_code} for {url}: {e}")
     except httpx.RequestError as e:
-        logging.error(f"❌ Request Error for {url}: {e}")
+        logging.error(f"[ERROR] Request Error for {url}: {e}")
     except Exception as e:
-        logging.error(f"❌ Unexpected error fetching {url}: {e}")
+        logging.error(f"[ERROR] Unexpected error fetching {url}: {e}")
     return ""
 
 # --- Prefetching Logic ---
@@ -102,10 +111,10 @@ async def prefetch_source(client: httpx.AsyncClient, site: Dict[str, Any], confi
         try:
             with open(output_path, "w", encoding="utf-8") as f:
                 f.write(content)
-            logging.info(f"✅ Saved '{site['name']}' to {output_path}")
+            logging.info(f"[SUCCESS] Saved '{site['name']}' to {output_path}")
             return True
         except Exception as e:
-            logging.error(f"❌ Failed to write file for '{site['name']}': {e}")
+            logging.error(f"[ERROR] Failed to write file for '{site['name']}': {e}")
     return False
 
 async def run_batch_prefetch(config: Dict):
@@ -155,11 +164,11 @@ async def test_scanner_connections(config: Dict):
                         # Use HEAD request for testing
                         response = await client.head(url, timeout=15.0, follow_redirects=True)
                         if 200 <= response.status_code < 400:
-                            logging.info(f"✅ SUCCESS ({response.status_code}) - {site['name']}")
+                            logging.info(f"[SUCCESS] ({response.status_code}) - {site['name']}")
                         else:
-                            logging.warning(f"⚠️ WARNING ({response.status_code}) - {site['name']} at {url}")
+                            logging.warning(f"[WARNING] ({response.status_code}) - {site['name']} at {url}")
                     except httpx.RequestError as e:
-                        logging.error(f"❌ FAILED - {site['name']} at {url} ({type(e).__name__})")
+                        logging.error(f"[ERROR] FAILED - {site['name']} at {url} ({type(e).__name__})")
 
 # --- Scanner Logic (Quick Strike) ---
 
@@ -253,11 +262,11 @@ async def run_automated_scan(config: Dict, args: Optional[argparse.Namespace]):
             report_path = output_dir / f"quick_strike_report_{today_str}.txt"
             with open(report_path, 'w', encoding='utf-8') as f:
                 f.write(report_content)
-            logging.info(f"✅ Quick Strike report saved to {report_path}")
+            logging.info(f"[SUCCESS] Quick Strike report saved to {report_path}")
         except Exception as e:
-            logging.error(f"❌ Failed to generate/save Quick Strike report: {e}")
+            logging.error(f"[ERROR] Failed to generate/save Quick Strike report: {e}")
     else:
-        logging.info("⚠️ No races found during Quick Strike scan.")
+        logging.warning("No races found during Quick Strike scan.")
 
     logging.info("-" * 50)
     logging.info("Quick Strike Scan Complete.")
