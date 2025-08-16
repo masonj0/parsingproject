@@ -143,12 +143,15 @@ def main_menu(config: Dict):
                 print(f"❌ Error launching link helper: {e}")
 
         elif choice == '3':
+            print("\n⚙️ Chaining Pre-Fetch and Parse for reliability...")
+            safe_async_run(run_batch_prefetch(config), "Pre-Fetch")
+            print("--- Pre-fetch complete. Now parsing local files... ---")
             if check_prerequisites(config, 'parse'):
                 try:
                     run_batch_parse(config, None)
-                    print("✅ Batch parsing completed.")
+                    print("✅ Batch parsing completed successfully.")
                 except Exception as e:
-                    print(f"❌ Error during batch parsing: {e}")
+                    print(f"❌ An error occurred during the parsing phase: {e}")
                     logging.error(f"Batch parse failed: {e}")
 
         elif choice == '4':
@@ -227,7 +230,14 @@ def main_cli(config: Dict, args: argparse.Namespace):
             asyncio.run(run_automated_scan(config, args))
 
         elif args.command == 'parse':
+            # This command now implicitly runs prefetch first to guarantee file availability
+            logging.info("CLI 'parse' command initiated. Running pre-fetch first.")
+            print("⚙️ Running pre-fetch before parsing to ensure data is fresh...")
+            asyncio.run(run_batch_prefetch(config))
+            print("--- Pre-fetch complete. Now parsing... ---")
+
             if not check_prerequisites(config, 'parse'):
+                print("❌ Parsing cannot continue because prerequisites were not met after pre-fetch.")
                 sys.exit(1)
             run_batch_parse(config, args)
 
