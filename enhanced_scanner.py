@@ -105,6 +105,12 @@ class TimeformAdapter:
                 trainer_el = row.select_one("td.rp-td-horse-trainer a")
                 odds_el = row.select_one("td.rp-td-horse-prices a.price")
 
+
+
+                # Odds are important for the analysis engine, but we can proceed without them
+                # if they are not available for a particular runner.
+
+
                 # Odds are important for the analysis engine, but we can proceed without them
                 # if they are not available for a particular runner.
                 if not all([horse_name_el, saddle_cloth_el, jockey_el, trainer_el]):
@@ -217,6 +223,19 @@ class TimeformAdapter:
         return race_docs
 
 
+
+
+
+                # Parse 
+
+
+
+
+
+
+      
+
+      
 
 # - Helper Function for Filename Sanitization -
 def sanitize_filename(name: str) -> str:
