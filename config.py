@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import json
+import logging
+import sys
 """
 Paddock Parser Toolkit - Configuration Loader (config.py)
 
@@ -8,21 +11,22 @@ from the main entry point to the individual parsers, uses the exact same
 set of configurations.
 """
 
-import json
-import logging
 from pathlib import Path
 from typing import Dict, Any
 
 def load_config(path: str = 'config.json') -> Dict[str, Any]:
+    """
+    Loads the main configuration file.
+    On critical errors (file not found, parse error), it logs the error
+    and exits the application to prevent running in a broken state.
+    """
     try:
         with open(path, 'r', encoding='utf-8') as f:
             return json.load(f)
     except FileNotFoundError:
-        logging.critical(f"FATAL: '{path}' not found.")
+        logging.critical(f"FATAL: Configuration file '{path}' not found. Application cannot continue.")
+        sys.exit(1)
     except json.JSONDecodeError as e:
-        logging.critical(f"FATAL: Could not parse '{path}': {e}")
-        print(f"FATAL: Could not parse '{path}'. It may be invalid JSON. Error: {e}", file=sys.stderr)
-        return {}
-    except Exception as e:
-        print(f"FATAL: An unexpected error occurred while loading the config file: {e}", file=sys.stderr)
-        return {}
+        logging.critical(f"FATAL: Could not parse configuration file '{path}': {e}. Application cannot continue.")
+        sys.exit(1)
+    return {} # Should not be reached in error cases

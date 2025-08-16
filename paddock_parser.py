@@ -80,15 +80,52 @@ class EnhancedValueScorer:
     """
     def __init__(self, config: Dict):
         self.config = config
-        self.weights = config.get("SCORER_WEIGHTS", {
+
+        default_weights = {
             "FIELD_SIZE_WEIGHT": 0.35, "FAVORITE_ODDS_WEIGHT": 0.45,
             "ODDS_SPREAD_WEIGHT": 0.15, "DATA_QUALITY_WEIGHT": 0.05
-        })
+        }
+
+        raw_weights = config.get("SCORER_WEIGHTS", default_weights)
+
+        # Validate and normalize weights
+        validated_weights = {}
+        total_weight = 0.0
+        valid = True
+
+        # Ensure all default keys are present in the raw_weights, falling back to default if not
+        for key in default_weights:
+            if key not in raw_weights:
+                raw_weights[key] = default_weights[key]
+
+        for key, value in raw_weights.items():
+            if not isinstance(value, (int, float)) or value < 0:
+                logging.warning(f"Invalid scorer weight for '{key}': {value}. Must be a non-negative number.")
+                valid = False
+                break
+            validated_weights[key] = float(value)
+            total_weight += float(value)
+
+        if not valid:
+            logging.warning("Using default scorer weights due to invalid configuration.")
+            self.weights = default_weights
+        elif total_weight == 0:
+            logging.warning("Total scorer weight is zero, which is not allowed. Using default weights.")
+            self.weights = default_weights
+        else:
+            # Normalize weights to sum to 1.0
+            self.weights = {key: value / total_weight for key, value in validated_weights.items()}
+            logging.info(f"Normalized scorer weights loaded: {self.weights}")
 
     def calculate_score(self, race: RaceData) -> float:
         """Calculates the final value score for a race."""
         if not race.runners or not race.favorite:
             return 0.0
+
+        # --- Edge Case Validation ---
+        if race.favorite and race.second_favorite and race.favorite.odds_decimal > race.second_favorite.odds_decimal:
+            logging.warning(f"Data inconsistency in race {race.id}: Favorite odds ({race.favorite.odds_decimal}) are greater than second favorite odds ({race.second_favorite.odds_decimal}).")
+        # --- End Validation ---
 
         # Ensure favorites have odds before calculating
         fav_odds = race.favorite.odds_decimal if race.favorite else 999.0
@@ -157,6 +194,7 @@ def smart_merge_race_data(existing_race: RaceData, new_race: RaceData) -> RaceDa
     if not existing_race.country or existing_race.country == "Unknown": existing_race.country = new_race.country
     if not existing_race.discipline or existing_race.discipline == "Unknown": existing_race.discipline = new_race.discipline
     if not existing_race.race_type or existing_race.race_type == "Unknown Type": existing_race.race_type = new_race.race_type
+    if new_race.field_size > existing_race.field_size: existing_race.field_size = new_race.field_size
     
     # Combine data sources
     existing_race.data_sources = sorted(list(set(existing_race.data_sources + new_race.data_sources)))
@@ -201,8 +239,21 @@ def run_persistent_engine(config: Dict, args: argparse.Namespace):
     logging.info(f"Engine is running. Paste data blocks followed by '{args.paste_sentinel}' on a new line.")
     logging.info("Press Ctrl+C to save and exit.")
 
+    last_processed_day = date.today()
     try:
         while True:
+            # --- Memory Leak Prevention: Daily Cache Reset ---
+            current_day = date.today()
+            if current_day != last_processed_day:
+                logging.info(f"New day detected. Clearing in-memory cache from {last_processed_day.strftime('%Y-%m-%d')}.")
+                races_by_id.clear()
+                last_processed_day = current_day
+                # Also update the cache file path for the new day
+                today_str = current_day.strftime("%Y-%m-%d")
+                cache_file = cache_dir / f"paddock_cache_{today_str}.json"
+                logging.info(f"Cache file updated to: {cache_file}")
+            # --- End Memory Leak Prevention ---
+
             print("\n" + "="*50)
             print(f" PASTE content, then type '{args.paste_sentinel}' and press Enter.")
             print("="*50)
@@ -228,6 +279,13 @@ def run_persistent_engine(config: Dict, args: argparse.Namespace):
             update_count = 0
             new_count = 0
             for race_dict in parsed_races_dicts:
+                # --- Essential Data Validation ---
+                required_fields = ['id', 'course', 'race_time']
+                if not all(race_dict.get(key) for key in required_fields):
+                    logging.warning(f"Skipping race due to missing essential data: {race_dict.get('id', 'N/A')}")
+                    continue
+                # --- End Validation ---
+
                 # Convert dicts to dataclasses for consistency and type safety
                 runners = [Runner(**r) for r in race_dict.get('runners', [])]
                 race_dict['runners'] = runners
@@ -254,18 +312,24 @@ def run_persistent_engine(config: Dict, args: argparse.Namespace):
             for race in races_list:
                 race.value_score = scorer.calculate_score(race)
 
-            # Save the updated cache
+            # Atomically save the updated cache to prevent data loss
             if not args.disable_cache_backup:
-                with open(cache_file, "w", encoding="utf-8") as f:
+                cache_file_tmp = cache_file.with_suffix('.json.tmp')
+                with open(cache_file_tmp, "w", encoding="utf-8") as f:
                     json.dump([asdict(race) for race in races_list], f, indent=2, default=str)
+                # Atomic rename operation
+                cache_file_tmp.rename(cache_file)
                 logging.info(f"Cache updated and saved to {cache_file}.")
 
     except KeyboardInterrupt:
         logging.info("\nCtrl+C detected. Saving final cache and exiting.")
         races_list = list(races_by_id.values())
         if not args.disable_cache_backup and races_list:
-            with open(cache_file, "w", encoding="utf-8") as f:
+            # Atomically save the final cache
+            cache_file_tmp = cache_file.with_suffix('.json.tmp')
+            with open(cache_file_tmp, "w", encoding="utf-8") as f:
                 json.dump([asdict(race) for race in races_list], f, indent=2, default=str)
+            cache_file_tmp.rename(cache_file)
             logging.info(f"Final cache of {len(races_list)} races saved to {cache_file}.")
         sys.exit(0)
     except Exception as e:
@@ -325,6 +389,13 @@ def run_batch_parse(config: Dict, args: Optional[argparse.Namespace]): # Allow O
                 continue
 
             for race_dict in parsed_races_dicts:
+                # --- Essential Data Validation ---
+                required_fields = ['id', 'course', 'race_time']
+                if not all(race_dict.get(key) for key in required_fields):
+                    logging.warning(f"Skipping race due to missing essential data: {race_dict.get('id', 'N/A')}")
+                    continue
+                # --- End Validation ---
+
                 # Convert dicts to dataclasses for consistency and type safety
                 runners = [Runner(**r) for r in race_dict.get('runners', [])]
                 race_dict['runners'] = runners
@@ -367,8 +438,8 @@ def run_batch_parse(config: Dict, args: Optional[argparse.Namespace]): # Allow O
             races_as_dicts = [asdict(race) for race in sorted_races]
             with open(output_file, 'w', encoding='utf-8') as f:
                 json.dump(races_as_dicts, f, indent=4)
-            logging.info(f"✅ Final report saved to {output_file}")
-            print(f"✅ Success! Final report saved to {output_file}")
+            logging.info(f"[SUCCESS] Final report saved to {output_file}")
+            print(f"[SUCCESS] Final report saved to {output_file}")
             # --- Generate HTML Report ---
             try:
                 template_dir = Path('.') # Assuming template is in the current directory
@@ -382,18 +453,18 @@ def run_batch_parse(config: Dict, args: Optional[argparse.Namespace]): # Allow O
                 html_output_file = output_dir / f"paddock_report_{today_str}.html"
                 with open(html_output_file, 'w', encoding='utf-8') as f:
                     f.write(html_output)
-                logging.info(f"✅ HTML report saved to {html_output_file}")
-                print(f"✅ Success! HTML report saved to {html_output_file}")
+                logging.info(f"[SUCCESS] HTML report saved to {html_output_file}")
+                print(f"[SUCCESS] HTML report saved to {html_output_file}")
             except Exception as e:
-                logging.error(f"❌ Failed to generate HTML report: {e}")
+                logging.error(f"[ERROR] Failed to generate HTML report: {e}")
                 print(f"Warning: Could not generate HTML report: {e}")
             # --- End Generate HTML Report ---
         except Exception as e:
-            logging.error(f"❌ Failed to save final report: {e}")
+            logging.error(f"[ERROR] Failed to save final report: {e}")
             print(f"Error: Failed to save report: {e}")
     else:
-        logging.info("⚠️ No races were found or parsed successfully.")
-        print("⚠️ No races were found or parsed successfully.")
+        logging.warning("No races were found or parsed successfully.")
+        print("[WARNING] No races were found or parsed successfully.")
 
     logging.info("-" * 50)
     logging.info("Batch parsing complete.")

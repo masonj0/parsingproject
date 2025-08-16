@@ -28,6 +28,11 @@ class RacingDataParser:
     """
     Comprehensive hybrid parser for racing data from multiple sources and formats.
     Handles JSON feeds, specific HTML formats, and generic HTML.
+
+    Future Exploration Ideas:
+    - RSS/XML Feeds: Many sites have undocumented RSS or XML feeds which are structured and reliable.
+    - Mobile API Endpoints: Sites with mobile apps often have simpler, less protected APIs (e.g., /mobile/ or /api/).
+    - Print-Friendly Pages: These often have much cleaner, simpler HTML that is easier to parse.
     """
     
     def __init__(self):
@@ -52,8 +57,28 @@ class RacingDataParser:
         """
         races_data = []
         logging.info(f"Starting parsing for source: {source_file}")
-        
-        # This function will be expanded to handle JSON, but for now, focuses on HTML.
+
+        # --- Try parsing as JSON first ---
+        # This is crucial for handling API-based sources like Sporting Life
+        try:
+            # A simple check to see if it's likely JSON
+            if content.strip().startswith('{') or content.strip().startswith('['):
+                json_data = json.loads(content)
+                logging.info("Successfully parsed content as JSON.")
+                # Now, dispatch to a JSON parser based on source
+                source_name_lower = source_file.lower()
+                if "sportinglife" in source_name_lower:
+                    logging.info("Detected Sporting Life API format. Using surgical JSON parser.")
+                    return self._parse_sporting_life_api(json_data, source_file)
+                elif "ukracingform" in source_name_lower:
+                    logging.info("Detected UKRacingForm API format. Using surgical JSON parser.")
+                    return self._parse_ukracingform_api(json_data, source_file)
+                else:
+                    logging.warning(f"Unrecognized JSON format for {source_file}. No parser available.")
+                    return []
+        except (json.JSONDecodeError, TypeError): # Catch TypeError for non-string content
+            logging.info("Content is not valid JSON, proceeding with HTML parsing.")
+            # Fall through to HTML parsing if JSON fails
         
         logging.info("Attempting to parse as HTML content.")
         races_data = self.parse_html_race_cards(content, source_file)
@@ -399,6 +424,173 @@ class RacingDataParser:
         
         logging.warning("Could not find 'allTracks' variable. Falling back to table parsing for Equibase.")
         return self._parse_equibase_table_fallback(soup, source_file)
+
+    def _parse_sporting_life_api(self, data: Dict[str, Any], source_file: str) -> List[Dict[str, Any]]:
+        """
+        Surgical parser for the hidden Sporting Life racing API.
+        This API provides structured JSON data for all of today's meetings.
+        """
+        races = []
+        # The API response is expected to be a dictionary, potentially with a key like 'race_meetings'
+        meetings = data.get('race_meetings', [])
+
+        if not meetings and isinstance(data, list): # Sometimes the root is just a list of meetings
+             meetings = data
+
+        for meeting in meetings:
+            try:
+                course_name = meeting.get('course_name')
+                country_code = meeting.get('country_code', 'GB/IRE') # Default
+                if not course_name:
+                    continue
+
+                for race_summary in meeting.get('races', []):
+                    race_time_str = race_summary.get('start_time') # e.g., "2024-05-21T13:45:00Z"
+                    if not race_time_str:
+                        continue
+
+                    # Extract just the HH:MM part for consistency
+                    parsed_time = parse_hhmm_any(race_time_str)
+                    race_id = self._generate_race_id(course_name, date.today(), parsed_time)
+
+                    # Determine discipline
+                    discipline = map_discipline(meeting.get('race_type_code', 'F')) # 'F' for Flat, 'H' for Hurdle etc.
+
+                    field_size = race_summary.get('number_of_runners', 0)
+
+                    race_data = {
+                        'id': race_id,
+                        'course': normalize_course_name(course_name),
+                        'race_time': parsed_time,
+                        'race_type': race_summary.get('race_class', 'Unknown Type'),
+                        'utc_datetime': race_time_str,
+                        'local_time': parsed_time,
+                        'timezone_name': "UTC", # API provides UTC
+                        'field_size': field_size,
+                        'country': country_code,
+                        'discipline': discipline,
+                        'source_file': source_file,
+                        'race_url': f"https://www.sportinglife.com{race_summary.get('race_url', '')}",
+                        'runners': [], # This API endpoint might not have runner details
+                        'favorite': None,
+                        'second_favorite': None,
+                        'value_score': 0.0,
+                        'data_sources': [source_file]
+                    }
+                    races.append(race_data)
+            except Exception as e:
+                logging.error(f"Error parsing a Sporting Life API meeting: {e}")
+                continue
+
+        return races
+
+    def _parse_ukracingform_api(self, data: List[Dict[str, Any]], source_file: str) -> List[Dict[str, Any]]:
+        """
+        Surgical parser for the UKRacingForm API. This API provides a list
+        of all races for a given day.
+        """
+        races = []
+        # This API is expected to return a list of race objects directly
+        if not isinstance(data, list):
+            logging.error("UKRacingForm API data is not a list as expected.")
+            return []
+
+        for race_item in data:
+            try:
+                course_name = race_item.get('track')
+                race_time_str = race_item.get('race_time') # e.g., "13:50"
+                if not course_name or not race_time_str:
+                    continue
+
+                race_id = self._generate_race_id(course_name, date.today(), race_time_str)
+
+                # The API might provide a full meeting name like "Newmarket (July)"
+                normalized_course = normalize_course_name(course_name)
+
+                # Get discipline from a field, or infer it
+                discipline = map_discipline(race_item.get('race_type', ''))
+                if discipline == 'thoroughbred' and 'hcap' in race_item.get('race_name', '').lower():
+                    discipline = 'jump' # Simple inference example
+
+                race_data = {
+                    'id': race_id,
+                    'course': normalized_course,
+                    'race_time': parse_hhmm_any(race_time_str),
+                    'race_type': race_item.get('race_name', 'Unknown Type'),
+                    'utc_datetime': None, # Not provided directly in this format
+                    'local_time': parse_hhmm_any(race_time_str),
+                    'timezone_name': "Europe/London", # Assume UK time
+                    'field_size': race_item.get('runners', 0),
+                    'country': race_item.get('country', 'GB'),
+                    'discipline': discipline,
+                    'source_file': source_file,
+                    'race_url': race_item.get('race_url', ''),
+                    'runners': [],
+                    'favorite': None,
+                    'second_favorite': None,
+                    'value_score': 0.0,
+                    'data_sources': [source_file]
+                }
+                races.append(race_data)
+            except Exception as e:
+                logging.error(f"Error parsing a UKRacingForm API race item: {e}")
+                continue
+
+        return races
+
+    def _parse_ukracingform_api(self, data: List[Dict[str, Any]], source_file: str) -> List[Dict[str, Any]]:
+        """
+        Surgical parser for the UKRacingForm API. This API provides a list
+        of all races for a given day.
+        """
+        races = []
+        # This API is expected to return a list of race objects directly
+        if not isinstance(data, list):
+            logging.error("UKRacingForm API data is not a list as expected.")
+            return []
+
+        for race_item in data:
+            try:
+                course_name = race_item.get('track')
+                race_time_str = race_item.get('race_time') # e.g., "13:50"
+                if not course_name or not race_time_str:
+                    continue
+
+                race_id = self._generate_race_id(course_name, date.today(), race_time_str)
+
+                # The API might provide a full meeting name like "Newmarket (July)"
+                normalized_course = normalize_course_name(course_name)
+
+                # Get discipline from a field, or infer it
+                discipline = map_discipline(race_item.get('race_type', ''))
+                if discipline == 'thoroughbred' and 'hcap' in race_item.get('race_name', '').lower():
+                    discipline = 'jump' # Simple inference example
+
+                race_data = {
+                    'id': race_id,
+                    'course': normalized_course,
+                    'race_time': parse_hhmm_any(race_time_str),
+                    'race_type': race_item.get('race_name', 'Unknown Type'),
+                    'utc_datetime': None, # Not provided directly in this format
+                    'local_time': parse_hhmm_any(race_time_str),
+                    'timezone_name': "Europe/London", # Assume UK time
+                    'field_size': race_item.get('runners', 0),
+                    'country': race_item.get('country', 'GB'),
+                    'discipline': discipline,
+                    'source_file': source_file,
+                    'race_url': race_item.get('race_url', ''),
+                    'runners': [],
+                    'favorite': None,
+                    'second_favorite': None,
+                    'value_score': 0.0,
+                    'data_sources': [source_file]
+                }
+                races.append(race_data)
+            except Exception as e:
+                logging.error(f"Error parsing a UKRacingForm API race item: {e}")
+                continue
+
+        return races
 
     # =========================================================================
     # --- FALLBACK PARSERS ---

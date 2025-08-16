@@ -13,19 +13,9 @@ from typing import Dict
 from datetime import date
 from urllib.parse import quote
 import sys
-import json
 
-def load_config():
-    """Loads and returns the configuration from config.json."""
-    try:
-        with open('config.json', 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        print("Error: config.json not found. Please ensure it's in the project root.", file=sys.stderr)
-        return None
-    except json.JSONDecodeError:
-        print("Error: Could not decode config.json. Please check file for syntax errors.", file=sys.stderr)
-        return None
+# Use the canonical config loader
+from config import load_config
 
 def create_and_launch_link_helper(config: Dict):
     """

@@ -251,7 +251,7 @@ async def perform_scan_and_alert(config: Dict, scorer: EnhancedValueScorer, aler
             race.value_score = scorer.calculate_score(race)
             
             if race.value_score >= min_score_to_alert and race.id not in alerted_ids:
-                title = f"🔥 Target Found! (Score: {race.value_score})"
+                title = f"[ALERT] Target Found! (Score: {race.value_score})"
                 content = f"{race.race_time} {race.course} ({race.field_size} runners)"
                 send_termux_notification(title, content)
                 alerted_ids.add(race.id)
