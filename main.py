@@ -24,7 +24,6 @@ from dataclasses import asdict
 try:
     from config import load_config
     from enhanced_scanner import run_automated_scan, test_scanner_connections, run_batch_prefetch
-    import racing_post_adapter
     from link_helper import create_and_launch_link_helper
     # --- New Imports for Adapter Pipeline ---
     from sources import collect_all, coalesce_docs
