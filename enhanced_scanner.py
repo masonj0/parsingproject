@@ -124,7 +124,7 @@ async def run_batch_prefetch(config: Dict):
     SKIP_LIST = ["(DISABLED)", "IGNORE", "SKIP"] # Hard-coded skip list
 
     # --- Use the helper to create the client with proxy/CA settings ---
-    async with httpx.AsyncClient(**build_httpx_client_kwargs(config)) as client:
+    async with httpx.AsyncClient(follow_redirects=True, **build_httpx_client_kwargs(config)) as client:
         prefetch_tasks = []
         for category in config.get("DATA_SOURCES", []):
             logging.info(f"- Processing Category: {category['title']} -")
@@ -234,7 +234,7 @@ async def run_automated_scan(config: Dict, args: Optional[argparse.Namespace]):
     output_dir.mkdir(exist_ok=True, parents=True)
 
     # --- Use the helper to create the client with proxy/CA settings ---
-    async with httpx.AsyncClient(**build_httpx_client_kwargs(config)) as client:
+    async with httpx.AsyncClient(follow_redirects=True, **build_httpx_client_kwargs(config)) as client:
         tasks = []
         for category in config.get("DATA_SOURCES", []):
             sites = [site for site in category.get("sites", []) if site.get("enabled", True)]
