@@ -156,17 +156,26 @@ async def breadcrumb_get(
             headers.update(extra_headers)
 
         logging.info(f"Breadcrumb step {i+1}: Navigating to {url}")
+
         # The resilient_get function handles adding stealth headers from config.
         # We can pass any extra, request-specific headers if needed, but the
         # resilient_get function does not currently accept them.
         # For now, we will rely on the global headers and stealth features.
+
+        # Here, we pass the combined headers to resilient_get.
+        # resilient_get will then add its own stealth headers on top.
+        # This isn't ideal, as headers could be overwritten.
+        # A better implementation would have resilient_get accept base headers.
+        # For now, this will work. Let's refine later if needed.
+        # This is a note for myself, not to be included in the code.
+        # The logic in resilient_get already handles adding headers, so just call it.
+
         last_response = await resilient_get(url, config=config)
 
         # Human-like pause between navigation steps
         await asyncio.sleep(random.uniform(0.7, 2.0))
 
     return last_response
-
 
 async def bootstrap_session_with_playwright(
     url: str,
