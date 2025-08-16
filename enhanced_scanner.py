@@ -103,7 +103,10 @@ class TimeformAdapter:
                 saddle_cloth_el = row.select_one("td.rp-td-horse-entry span.rp-entry-number")
                 jockey_el = row.select_one("td.rp-td-horse-jockey a")
                 trainer_el = row.select_one("td.rp-td-horse-trainer a")
+                odds_el = row.select_one("td.rp-td-horse-prices a.price")
 
+                # Odds are important for the analysis engine, but we can proceed without them
+                # if they are not available for a particular runner.
                 if not all([horse_name_el, saddle_cloth_el, jockey_el, trainer_el]):
                     missing = [
                         "name" if not horse_name_el else None,
@@ -119,12 +122,18 @@ class TimeformAdapter:
                 jockey_name = jockey_el.get_text(strip=True)
                 trainer_name = trainer_el.get_text(strip=True)
 
+                odds = None
+                if odds_el and odds_el.has_attr('data-price'):
+                    odds_val = odds_el['data-price']
+                    odds = FieldConfidence(odds_val, 0.9, "td.rp-td-horse-prices a.price[data-price]")
+
                 runner_id = f"{saddle_cloth}-{horse_name}".lower().replace(" ", "-")
 
                 runners.append(RunnerDoc(
                     runner_id=runner_id,
                     name=FieldConfidence(horse_name, 0.95, "td.rp-td-horse-name a.rp-horse"),
                     number=FieldConfidence(saddle_cloth, 0.95, "td.rp-td-horse-entry span.rp-entry-number"),
+                    odds=odds,
                     jockey=FieldConfidence(jockey_name, 0.9, "td.rp-td-horse-jockey a"),
                     trainer=FieldConfidence(trainer_name, 0.9, "td.rp-td-horse-trainer a")
                 ))
@@ -207,7 +216,8 @@ class TimeformAdapter:
 
         return race_docs
 
-      
+
+
 # - Helper Function for Filename Sanitization -
 def sanitize_filename(name: str) -> str:
     """Cleans a string to be a valid filename."""
