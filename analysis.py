@@ -55,7 +55,20 @@ def compute_signals(race: NormalizedRace, history=None) -> Dict[str, float]:
     # Placeholder signals that would require historical data
     signals["steam_move"] = 0.0  # Needs price history
     signals["value_vs_sp"] = 0.0 # Needs Starting Price history
-    signals["market_consensus"] = 0.0
+    # Calculate market consensus via overround
+    implied_probabilities = []
+    if race.runners:
+        for runner in race.runners:
+            if runner.odds_decimal and runner.odds_decimal > 0:
+                implied_probabilities.append(1 / runner.odds_decimal)
+
+    if implied_probabilities:
+        overround = sum(implied_probabilities)
+        # A lower overround suggests a more competitive/confident market.
+        # We'll define the signal as (1 / overround), so higher is better.
+        signals["market_consensus"] = (1 / overround) if overround > 0 else 0.0
+    else:
+        signals["market_consensus"] = 0.0
     signals["trainer_form"] = 0.0
     signals["jockey_uplift"] = 0.0
 

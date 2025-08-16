@@ -27,7 +27,7 @@ import re
 import unicodedata
 import hashlib # <-- Added import for hash-based ID generation if needed
 import datetime as dt
-from fetching import breadcrumb_get
+from fetching import breadcrumb_get, fetch_with_favicon
 from sources import (
     SourceAdapter,
     RawRaceDocument,
@@ -44,7 +44,7 @@ except ImportError:
     sys.exit(1)
 
 # Shared Intelligence: The new normalizer is used in the main pipeline.
-# This legacy import is no longer needed for the adapter-based architecture.
+from normalizer import canonical_track_key, canonical_race_key
 
 # --- CONFIGURATION HELPERS ---
 def build_httpx_client_kwargs(config: Dict) -> Dict[str, Any]:
@@ -91,7 +91,8 @@ class TimeformAdapter:
 
     async def fetch(self, config: dict) -> list[RawRaceDocument]:
         """
-        Fetches the Timeform racecards page and performs a mock parse.
+        Fetches the Timeform racecards page and parses the data
+        to extract race information.
         """
         site_config = self._find_site_config(config)
         if not site_config:
@@ -105,10 +106,16 @@ class TimeformAdapter:
             logging.error("Timeform base_url or url not configured.")
             return []
 
-        # Use breadcrumb navigation to fetch the page
+        # Use breadcrumb and favicon navigation to fetch the page
         logging.info("Fetching Timeform data using the new adapter...")
+        scraper_config = config.get("SCRAPER", {})
         try:
-            response = await breadcrumb_get(urls=[base_url, target_url], config=config)
+            if scraper_config.get("ENABLE_FAVICON_PREFETCH"):
+                logging.info("...with favicon psychology.")
+                response = await fetch_with_favicon(base_url, target_url, config)
+            else:
+                response = await breadcrumb_get(urls=[base_url, target_url], config=config)
+
             if not response:
                 logging.error("Failed to fetch Timeform data.")
                 return []
@@ -128,34 +135,61 @@ class TimeformAdapter:
             logging.info(f"ADAPTER_SUCCESS: Saved '{site_config['name']}' to {output_path}")
         except Exception as e:
             logging.error(f"ADAPTER_ERROR: Failed to write file for '{site_config['name']}': {e}")
-            # Continue to parsing even if file save fails, as content is in memory
 
-        # --- Placeholder Parsing Logic ---
-        logging.info(f"Successfully fetched {len(html_content)} bytes from Timeform.")
-        logging.info("Parsing Timeform HTML (placeholder)...")
-
+        # --- Real Parsing Logic ---
+        logging.info("Parsing Timeform HTML...")
         soup = BeautifulSoup(html_content, 'lxml')
-        page_title = soup.title.string if soup.title else "No Title Found"
+        races = []
 
-        dummy_runner = RunnerDoc(
-            runner_id="timeform-dummy-runner-1",
-            name=FieldConfidence(value="My Horse", confidence=0.9, provenance="title_tag"),
-        )
+        meeting_containers = soup.select(".w-racecard-grid-meeting")
+        logging.info(f"Found {len(meeting_containers)} meeting containers.")
 
-        dummy_race = RawRaceDocument(
-            source_id=self.source_id,
-            fetched_at=dt.datetime.now(dt.timezone.utc).isoformat(),
-            track_key="dummy_track",
-            race_key="dummy_track_r1",
-            start_time_iso=dt.datetime.now(dt.timezone.utc).isoformat(),
-            runners=[dummy_runner],
-            extras={
-                "page_title": FieldConfidence(value=page_title, confidence=1.0)
-            }
-        )
+        for meeting in meeting_containers:
+            try:
+                header = meeting.select_one(".w-racecard-grid-meeting-header")
+                course_name_element = header.select_one("h2")
+                if not course_name_element:
+                    continue
 
-        logging.info("Successfully created a dummy RawRaceDocument from Timeform.")
-        return [dummy_race]
+                course_name = course_name_element.get_text(strip=True)
+                track_key = canonical_track_key(course_name)
+
+                race_items = meeting.select(".w-racecard-grid-meeting-races-compact li")
+                for item in race_items:
+                    time_element = item.select_one("b")
+                    link_element = item.select_one("a")
+                    if not time_element or not link_element:
+                        continue
+
+                    race_time_str = time_element.get_text(strip=True)
+                    href = link_element.get('href', '')
+                    # Extract race number from URL for a more stable key
+                    race_num_match = re.search(r'/(\d+)/?$', href)
+                    race_num = race_num_match.group(1) if race_num_match else race_time_str.replace(":", "")
+
+                    race_key = canonical_race_key(track_key, race_num)
+
+                    # Runner details are not on this page, so we create a race document with no runners.
+                    # A more advanced implementation would fetch the race_url to get runner details.
+                    races.append(RawRaceDocument(
+                        source_id=self.source_id,
+                        fetched_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+                        track_key=track_key,
+                        race_key=race_key,
+                        start_time_iso=f"{date.today().isoformat()}T{race_time_str}:00Z",
+                        runners=[],
+                        extras={
+                            "race_title": FieldConfidence(link_element.get('title', ''), 0.8, "a[title]"),
+                            "race_url": FieldConfidence(f"https://www.timeform.com{href}", 0.95, "a[href]")
+                        }
+                    ))
+            except Exception as e:
+                logging.error(f"Error parsing a Timeform meeting container: {e}", exc_info=True)
+
+        logging.info(f"Successfully parsed {len(races)} races from Timeform.")
+        return races
+
+
 
 # - Helper Function for Filename Sanitization -
 def sanitize_filename(name: str) -> str:
