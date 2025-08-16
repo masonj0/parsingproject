@@ -16,3 +16,6 @@ backports.zoneinfo; python_version < "3.9"
 
 # lxml is a high-performance parser for BeautifulSoup
 lxml>=5.0.0
+
+# Playwright for browser automation tasks (e.g., session bootstrapping)
+playwright>=1.45.0
