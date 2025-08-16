@@ -16,7 +16,15 @@
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9",
     "Accept-Encoding": "gzip, deflate, br",
-    "Accept-Language": "en-US,en;q=0.9"
+    "Accept-Language": "en-US,en;q=0.9",
+    "Sec-Ch-Ua": "\"Not?A_Brand\";v=\"8\", \"Chromium\";v=\"108\", \"Google Chrome\";v=\"108\"",
+    "Sec-Ch-Ua-Mobile": "?0",
+    "Sec-Ch-Ua-Platform": "\"Windows\"",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1"
   },
   "PROXY_VIEWERS": [
     {
@@ -57,9 +65,9 @@
         {"name": "Daily Racing Form (DRF) Entries", "url": "https://entries.drf.com/entries", "enabled": true},
         {"name": "FanDuel Racing (Full List)", "url": "https://racing.fanduel.com/races", "enabled": true},
         {"name": "TwinSpires (Today's Races)", "url": "https://www.twinspires.com/races", "enabled": true},
-        {"name": "1/ST BET (Stronach Group)", "url": "https://1st.com/bet/tracks", "enabled": true},
+        {"name": "1/ST BET (Stronach Group)", "url": "https://1st.com/bet/tracks", "enabled": false},
         {"name": "NYRA Bets", "url": "https://www.nyrabets.com/racing", "enabled": true},
-        {"name": "Xpressbet", "url": "https://www.xpressbet.com/races", "enabled": true}
+        {"name": "Xpressbet", "url": "https://www.xpressbet.com/races", "enabled": false}
       ]
     },
     {
@@ -67,8 +75,8 @@
       "sites": [
         {"name": "Racing Post (UK/IRE Race Cards)", "url": "https://www.racingpost.com/racecards/", "enabled": true},
         {"name": "France Galop (France)", "url": "https://www.france-galop.com/fr/courses/reunions-courses", "enabled": true},
-        {"name": "Deutscher Galopp (Germany)", "url": "https://www.deutscher-galopp.de/gr/renntage/rennen.php", "enabled": true},
-        {"name": "Svensk Galopp (Sweden)", "url": "https://www.svenskgalopp.se/starter-och-resultat", "enabled": true},
+        {"name": "Deutscher Galopp (Germany)", "url": "https://www.deutscher-galopp.de/gr/renntage/rennkalender.php", "enabled": true},
+        {"name": "Svensk Galopp (Sweden)", "url": "https://app.svenskgalopp.se/tavling/tavlingskalender", "enabled": true},
         {"name": "PMU (France)", "url": "https://www.pmu.fr/turf/", "enabled": true}
       ]
     },
@@ -77,20 +85,20 @@
       "sites": [
         {"name": "TAB (Australia)", "url": "https://www.tab.com.au/racing", "enabled": true},
         {"name": "Punters.com.au (Australia)", "url": "https://www.punters.com.au/horse-racing-form-guide/", "enabled": true},
-        {"name": "Racing Australia (National Fields)", "url": "https://racingaustralia.horse/Fields/NationalFields.aspx", "enabled": true},
+        {"name": "Racing Australia (National Fields)", "url": "https://racingaustralia.horse/Fields/NationalFields.aspx", "enabled": false},
         {"name": "Hong Kong Jockey Club (HKJC)", "url": "https://racing.hkjc.com/racing/information/English/Racing/RaceCard.aspx", "enabled": true},
         {"name": "JRA (Japan)", "url": "https://japanracing.jp/en/racing/result/index.html", "enabled": true},
-        {"name": "Gold Circle (South Africa)", "url": "https://www.goldcircle.co.za/race-cards/", "enabled": true},
-        {"name": "Emirates Racing Authority (UAE)", "url": "https://emiratesracing.com/race-calendar", "enabled": true}
+        {"name": "Gold Circle (South Africa)", "url": "https://www.goldcircle.co.za/race-cards/", "enabled": false},
+        {"name": "Emirates Racing Authority (UAE)", "url": "https://emiratesracing.com/race-calendar", "enabled": false}
       ]
     },
     {
       "title": "🏇 Specialized Disciplines (Harness & Greyhound)",
       "sites": [
         {"name": "USTA (US Harness Entries)", "url": "https://racing.ustrotting.com/goto.aspx?target=entries", "enabled": true},
-        {"name": "Standardbred Canada (Entries/Results)", "url": "https://www.standardbredcanada.ca/racing/entries", "enabled": true},
+        {"name": "Standardbred Canada (Entries/Results)", "url": "https://www.standardbredcanada.ca/racing/entries", "enabled": false},
         {"name": "Harness Racing Australia", "url": "https://www.harness.org.au/racing/fields/", "enabled": true},
-        {"name": "GBGB (UK Greyhounds)", "url": "https://www.gbgb.org.uk/racecards/", "enabled": true},
+        {"name": "GBGB (UK Greyhounds)", "url": "https://www.gbgb.org.uk/racecards/", "enabled": false},
         {"name": "Greyhound Racing Ireland", "url": "https://www.grireland.ie/race-cards/", "enabled": true},
         {"name": "The Dogs (AUS Greyhounds)", "url": "https://www.thedogs.com.au/racing/today", "enabled": true}
       ]
