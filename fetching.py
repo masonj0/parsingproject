@@ -5,6 +5,7 @@ import time
 import httpx
 import pytz
 import logging
+import json
 from datetime import datetime
 from httpx import Cookies
 
@@ -16,6 +17,31 @@ from config import (
     UA_FAMILIES,
     BIZ_HOURS
 )
+
+# --- Structured Logging for Fetch Outcomes ---
+
+class JSONFormatter(logging.Formatter):
+    def format(self, record):
+        log_record = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "level": record.levelname,
+            "message": record.getMessage()
+        }
+        if hasattr(record, 'extra_data'):
+            log_record.update(record.extra_data)
+        return json.dumps(log_record)
+
+def setup_fetch_logger():
+    logger = logging.getLogger('fetch_outcomes')
+    logger.setLevel(logging.INFO)
+    if not logger.handlers:
+        handler = logging.FileHandler('fetch_outcomes.log', mode='w')
+        handler.setFormatter(JSONFormatter())
+        logger.addHandler(handler)
+    return logger
+
+fetch_logger = setup_fetch_logger()
+
 
 # --- Global Shared Client ---
 
@@ -101,6 +127,14 @@ async def resilient_get(
 
             # 4. Handle response status
             if response.status_code == 200:
+                fetch_logger.info(f"Successfully fetched {url}", extra_data={
+                    "url": url,
+                    "success": True,
+                    "status_code": response.status_code,
+                    "response_time_ms": int(response_time * 1000),
+                    "user_agent": req_headers.get("User-Agent"),
+                    "proxy_used": False # Placeholder
+                })
                 return response
 
             response.raise_for_status() # Raise for other 4xx/5xx errors
@@ -131,7 +165,15 @@ async def resilient_get(
             delay *= 2  # Exponential backoff
             continue
 
-    # If all attempts fail, raise the last error
+    # If all attempts fail, log the failure and raise the last error
+    fetch_logger.error(f"Failed to fetch {url} after {attempts} attempts", extra_data={
+        "url": url,
+        "success": False,
+        "status_code": None, # No response object here
+        "response_time_ms": None,
+        "user_agent": client.headers.get("User-Agent"), # Last used UA
+        "proxy_used": False # Placeholder
+    })
     raise Exception(f"Failed to fetch {url} after {attempts} attempts.")
 
 
