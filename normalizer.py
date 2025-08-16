@@ -1,99 +1,102 @@
-#!/usr/bin/env python3
-"""
-Paddock Parser Toolkit - Shared Normalizer Module (normalizer.py)
+# normalizer.py
+from dataclasses import dataclass, field
+from typing import Dict, Any, List
+from sources import RawRaceDocument, RunnerDoc, FieldConfidence
 
-NOTE TO SELF (The Constitution - The "Shared Intelligence" Gem):
-This module is the single source of truth for all data cleaning and
-normalization logic. Both the automated scanner and the manual parser MUST use
-these functions to ensure that data is 100% consistent across the entire
-toolkit. This prevents logical drift between the two tools and is a
-cornerstone of our professional architecture.
-"""
+SCHEMA_VERSION = "2.0"
 
-import re
-from typing import Optional
+def canonical_track_key(raw: str) -> str:
+    """Creates a standardized, URL-safe key for a track name."""
+    if not raw:
+        return "unknown_track"
+    return raw.strip().lower().replace(" ", "_").replace("(", "").replace(")", "")
 
-# Pre-compiled regex patterns for performance
-_COURSE_NAME_AT_REGEX = re.compile(r' at .*$')
-_COURSE_NAME_PAREN_REGEX = re.compile(r'\s*\([^)]*\)')
-_TIME_TEXT_REGEX = re.compile(r'(\d{1,2})[:.](\d{2})')
+def canonical_race_key(track: str, race_no: str | int) -> str:
+    """Creates a unique, standardized key for a specific race."""
+    return f"{canonical_track_key(track)}::r{str(race_no).zfill(2)}"
 
-def normalize_course_name(name: str) -> str:
-    """
-    Cleans and standardizes a racetrack name.
-    Handles common suffixes, parenthetical text, and special cases like "at".
-    """
-    if not name:
-        return ""
-    name = name.lower().strip()
-    name = _COURSE_NAME_AT_REGEX.sub('', name)  # Handles "Woodbine at Mohawk"
-    name = _COURSE_NAME_PAREN_REGEX.sub('', name)  # Removes text in parentheses
-    replacements = {
-        'park': '', 'raceway': '', 'racecourse': '', 'track': '',
-        'stadium': '', 'greyhound': '', 'harness': ''
-    }
-    for old, new in replacements.items():
-        name = name.replace(old, new)
-    return " ".join(name.split())
+@dataclass
+class NormalizedRunner:
+    """A runner with standardized and cleaned data fields."""
+    runner_id: str
+    name: str
+    odds_decimal: float | None
+    features: Dict[str, Any] = field(default_factory=dict)
 
-def map_discipline(discipline_name: str) -> str:
-    """
-    Maps a raw discipline string to a standardized category.
-    Handles various terms for thoroughbred, harness, and greyhound racing.
-    """
-    if not discipline_name:
-        return "thoroughbred"
-    d_lower = discipline_name.lower()
-    if "greyhound" in d_lower or "dog" in d_lower:
-        return "greyhound"
-    if "harness" in d_lower or "trot" in d_lower or "standardbred" in d_lower:
-        return "harness"
-    if "jump" in d_lower or "chase" in d_lower or "hurdle" in d_lower or "national hunt" in d_lower:
-        return "jump"
-    return "thoroughbred"
+@dataclass
+class NormalizedRace:
+    """A race with all data normalized and ready for analysis."""
+    schema_version: str
+    track_key: str
+    race_key: str
+    start_time_iso: str | None
+    runners: List[NormalizedRunner]
+    provenance: Dict[str, Any] = field(default_factory=dict)
 
-def parse_hhmm_any(time_text: str) -> Optional[str]:
+def _parse_odds(value: str | float | None) -> float | None:
     """
-    Parses a time string from various common formats (e.g., '7:30 PM', '19.30')
-    into a standardized 24-hour 'HH:MM' format.
+    Converts various odds formats (e.g., '7/2', 'SP', 3.5) into a decimal float.
+    Returns None if parsing fails.
     """
-    if not time_text:
+    if value is None:
         return None
+    if isinstance(value, (int, float)):
+        return float(value)
     
-    match = _TIME_TEXT_REGEX.search(str(time_text))
-    if not match:
+    v = str(value).strip().upper()
+    if v in {"SP", "NR", "SCR", "VOID"}:
         return None
-    
-    hour, minute = int(match.group(1)), int(match.group(2))
-    
-    text_lower = str(time_text).lower()
-    if 'pm' in text_lower and hour != 12:
-        hour += 12
-    if 'am' in text_lower and hour == 12:  # Handle midnight case (12:xx AM)
-        hour = 0
-        
-    return f"{hour:02d}:{minute:02d}"
+    if v in {"EVS", "EVENS"}:
+        return 2.0  # Standard decimal representation of evens
 
-def convert_odds_to_fractional_decimal(odds_str: str) -> float:
-    """
-    Converts various odds formats ('5/2', '7-5', 'EVS', 'SP') into a
-    single, comparable decimal float of the fraction (e.g., 5/2 -> 2.5).
-    """
-    if not isinstance(odds_str, str) or not odds_str.strip():
-        return 999.0
-    s = odds_str.strip().upper().replace("-", "/")
-    if s in {"SP", "NR", "SCR", "VOID"}:
-        return 999.0
-    if s in {"EVS", "EVENS"}:
-        return 1.0
-    if "/" in s:
+    if "/" in v:
         try:
-            num, den = map(float, s.split("/", 1))
-            return num / den if den > 0 else 999.0
+            num, den = v.split("/", 1)
+            return 1.0 + (float(num) / float(den))
         except (ValueError, ZeroDivisionError):
-            return 999.0
+            return None
     try:
-        dec = float(s)
-        return dec - 1.0 if dec > 1.0 else 999.0
-    except ValueError:
-        return 999.0
+        # Assumes decimal odds if not fractional
+        return float(v)
+    except (ValueError, TypeError):
+        return None
+
+def normalize_race_docs(doc: RawRaceDocument) -> NormalizedRace:
+    """
+    Transforms a RawRaceDocument from a source adapter into a clean,
+    standardized NormalizedRace object ready for the analysis engine.
+    """
+    runners = []
+    for r in doc.runners:
+        odds = _parse_odds(r.odds.value if r.odds else None)
+
+        # Pass through any extra data from the source, along with confidence scores
+        features = {
+            "jockey": r.jockey.value if r.jockey else None,
+            "trainer": r.trainer.value if r.trainer else None,
+            "extras": {k: v.value for k, v in r.extras.items()},
+            "field_confidence": {
+                "name": r.name.confidence if r.name else 0.0,
+                "odds": r.odds.confidence if r.odds else 0.0,
+                "jockey": r.jockey.confidence if r.jockey else 0.0,
+                "trainer": r.trainer.confidence if r.trainer else 0.0,
+            }
+        }
+
+        runners.append(NormalizedRunner(
+            runner_id=r.runner_id,
+            name=r.name.value if r.name else "UNKNOWN",
+            odds_decimal=odds,
+            features=features,
+        ))
+
+    provenance = {"source_id": doc.source_id, "fetched_at": doc.fetched_at}
+
+    return NormalizedRace(
+        schema_version=SCHEMA_VERSION,
+        track_key=doc.track_key,
+        race_key=doc.race_key,
+        start_time_iso=doc.start_time_iso,
+        runners=runners,
+        provenance=provenance,
+    )

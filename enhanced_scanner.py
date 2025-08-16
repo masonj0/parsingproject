@@ -26,6 +26,15 @@ from bs4 import BeautifulSoup
 import re
 import unicodedata
 import hashlib # <-- Added import for hash-based ID generation if needed
+import datetime as dt
+from fetching import breadcrumb_get
+from sources import (
+    SourceAdapter,
+    RawRaceDocument,
+    RunnerDoc,
+    FieldConfidence,
+    register_adapter,
+)
 
 # Import the configuration loader
 try:
@@ -34,12 +43,8 @@ except ImportError:
     print("FATAL: Could not import config.py. Ensure it's in the same directory.", file=sys.stderr)
     sys.exit(1)
 
-# Shared Intelligence: Ensure all normalization is consistent
-try:
-    from normalizer import normalize_course_name, parse_hhmm_any, convert_odds_to_fractional_decimal, map_discipline
-except ImportError:
-    print("FATAL: Could not import normalizer.py. Ensure it's in the same directory.", file=sys.stderr)
-    sys.exit(1)
+# Shared Intelligence: The new normalizer is used in the main pipeline.
+# This legacy import is no longer needed for the adapter-based architecture.
 
 # --- CONFIGURATION HELPERS ---
 def build_httpx_client_kwargs(config: Dict) -> Dict[str, Any]:
@@ -62,6 +67,95 @@ def build_httpx_client_kwargs(config: Dict) -> Dict[str, Any]:
         kwargs["proxies"] = proxies
     return kwargs
 # --- END CONFIGURATION HELPERS ---
+
+
+# --- Source Adapters ---
+# This is the new, preferred way to add data sources.
+# Eventually, all sources will be converted to this pattern.
+
+@register_adapter
+class TimeformAdapter:
+    """
+    Adapter for fetching racecards from Timeform.
+    Uses breadcrumb navigation to appear more human.
+    """
+    source_id = "timeform"
+
+    def _find_site_config(self, config: dict) -> dict | None:
+        """Finds the specific configuration for Timeform from the main config."""
+        for category in config.get("DATA_SOURCES", []):
+            for site in category.get("sites", []):
+                if "timeform" in site.get("name", "").lower():
+                    return site
+        return None
+
+    async def fetch(self, config: dict) -> list[RawRaceDocument]:
+        """
+        Fetches the Timeform racecards page and performs a mock parse.
+        """
+        site_config = self._find_site_config(config)
+        if not site_config:
+            logging.error("Timeform site configuration not found.")
+            return []
+
+        base_url = site_config.get("base_url")
+        target_url = site_config.get("url")
+
+        if not base_url or not target_url:
+            logging.error("Timeform base_url or url not configured.")
+            return []
+
+        # Use breadcrumb navigation to fetch the page
+        logging.info("Fetching Timeform data using the new adapter...")
+        try:
+            response = await breadcrumb_get(urls=[base_url, target_url], config=config)
+            if not response:
+                logging.error("Failed to fetch Timeform data.")
+                return []
+            html_content = response.text
+        except Exception as e:
+            logging.error(f"An error occurred while fetching Timeform: {e}")
+            return []
+
+        # --- Save the fetched content to a file ---
+        input_dir = Path(config.get("INPUT_DIR", "html_input"))
+        input_dir.mkdir(exist_ok=True, parents=True)
+        filename = sanitize_filename(site_config['name']) + ".html"
+        output_path = input_dir / filename
+        try:
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(html_content)
+            logging.info(f"ADAPTER_SUCCESS: Saved '{site_config['name']}' to {output_path}")
+        except Exception as e:
+            logging.error(f"ADAPTER_ERROR: Failed to write file for '{site_config['name']}': {e}")
+            # Continue to parsing even if file save fails, as content is in memory
+
+        # --- Placeholder Parsing Logic ---
+        logging.info(f"Successfully fetched {len(html_content)} bytes from Timeform.")
+        logging.info("Parsing Timeform HTML (placeholder)...")
+
+        soup = BeautifulSoup(html_content, 'lxml')
+        page_title = soup.title.string if soup.title else "No Title Found"
+
+        dummy_runner = RunnerDoc(
+            runner_id="timeform-dummy-runner-1",
+            name=FieldConfidence(value="My Horse", confidence=0.9, provenance="title_tag"),
+        )
+
+        dummy_race = RawRaceDocument(
+            source_id=self.source_id,
+            fetched_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+            track_key="dummy_track",
+            race_key="dummy_track_r1",
+            start_time_iso=dt.datetime.now(dt.timezone.utc).isoformat(),
+            runners=[dummy_runner],
+            extras={
+                "page_title": FieldConfidence(value=page_title, confidence=1.0)
+            }
+        )
+
+        logging.info("Successfully created a dummy RawRaceDocument from Timeform.")
+        return [dummy_race]
 
 # - Helper Function for Filename Sanitization -
 def sanitize_filename(name: str) -> str:
@@ -132,6 +226,14 @@ async def run_batch_prefetch(config: Dict):
             for site in sites:
                 if any(skip_item in site['name'] for skip_item in SKIP_LIST):
                     logging.info(f"--> Skipping '{site['name']}' (on hard-coded skip list).")
+                    continue
+
+                # NEW: Skip if an adapter exists for this source.
+                # This prevents fetching the same data twice.
+                from sources import ADAPTERS
+                adapter_source_ids = [adapter.source_id for adapter in ADAPTERS]
+                if any(adapter_id in site['name'].lower() for adapter_id in adapter_source_ids):
+                    logging.info(f"--> Skipping '{site['name']}' (handled by modern adapter).")
                     continue
                 if site.get("url"):
                     task = asyncio.create_task(prefetch_source(client, site, config, today_str)) # Pass client
@@ -280,6 +382,5 @@ if __name__ == "__main__":
     if not config:
         sys.exit(1)
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-    # Example: asyncio.run(test_scanner_connections(config))
-    # Example: asyncio.run(run_batch_prefetch(config))
-    # Example: asyncio.run(run_automated_scan(config, None)) # Pass None for args if run directly
+    # Running the batch prefetch by default for this test.
+    asyncio.run(run_batch_prefetch(config))
