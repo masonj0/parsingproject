@@ -207,8 +207,7 @@ class TimeformAdapter:
 
         return race_docs
 
-
-
+      
 # - Helper Function for Filename Sanitization -
 def sanitize_filename(name: str) -> str:
     """Cleans a string to be a valid filename."""
