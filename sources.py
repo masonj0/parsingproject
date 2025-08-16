@@ -46,17 +46,25 @@ def register_adapter(adapter_cls):
     ADAPTERS.append(adapter_cls())
     return adapter_cls
 
-async def collect_all(config: dict) -> List[RawRaceDocument]:
+async def collect_all(config: dict, adapter_ids: List[str] = None) -> List[RawRaceDocument]:
     """
     Fetches data from all registered source adapters concurrently.
+    If adapter_ids is provided, only fetches from those adapters.
     """
-    tasks = [adapter.fetch(config) for adapter in ADAPTERS]
+    if adapter_ids:
+        adapters_to_run = [adapter for adapter in ADAPTERS if adapter.source_id in adapter_ids]
+    else:
+        adapters_to_run = ADAPTERS
+
+    print(f"DEBUG: Adapters to run: {[adapter.source_id for adapter in adapters_to_run]}")
+
+    tasks = [adapter.fetch(config) for adapter in adapters_to_run]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
     all_docs = []
     for i, result in enumerate(results):
         if isinstance(result, Exception):
-            print(f"[ERROR] Adapter '{ADAPTERS[i].source_id}' failed: {result}")
+            print(f"[ERROR] Adapter '{adapters_to_run[i].source_id}' failed: {result}")
         else:
             all_docs.extend(result)
 
