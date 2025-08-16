@@ -1,5 +1,9 @@
+# pytz for timezone-aware datetimes, used in fetching logic
+pytz>=2024.1
+
 # Core libraries for HTTP requests, HTML/JSON parsing, and UI
-httpx==0.27.0
+# http2 extra enables support for the HTTP/2 protocol
+httpx[http2]==0.27.0
 beautifulsoup4==4.12.3
 jinja2==3.1.4
 tqdm==4.66.4
@@ -9,3 +13,6 @@ clipboard==0.0.4
 
 # Backport for timezone support on Python versions older than 3.9
 backports.zoneinfo; python_version < "3.9"
+
+# lxml is a high-performance parser for BeautifulSoup
+lxml>=5.0.0

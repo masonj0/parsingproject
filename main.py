@@ -21,9 +21,14 @@ import time
 # Import all necessary functions from our modules
 try:
     from config import load_config
+    # Only import the functions still used by the menu or the new pipeline
     from enhanced_scanner import run_automated_scan, test_scanner_connections, run_batch_prefetch
-    from paddock_parser import run_batch_parse, run_persistent_engine
+    # from paddock_parser import run_batch_parse, run_persistent_engine # <-- DECOMMISSIONED
     from link_helper import create_and_launch_link_helper
+    # --- New Imports for Adapter Pipeline ---
+    from sources import collect_all, coalesce_docs
+    from normalizer import normalize_race_docs
+    from analysis import score_races
 except ImportError as e:
     print(f"FATAL: Could not import required modules: {e}", file=sys.stderr)
     print("Ensure all required files are in the same directory.", file=sys.stderr)
@@ -103,6 +108,47 @@ def check_prerequisites(config: Dict, operation: str) -> bool:
             return False
     return True
 
+
+# --- New Adapter-Based Workflow ---
+
+async def run_adapter_pipeline(config: Dict):
+    """
+    Runs the full data pipeline using the new adapter architecture.
+    Collect -> Coalesce -> Normalize -> Score
+    """
+    logging.info("--- Starting Full Adapter Pipeline ---")
+
+    # 1. Collect raw data from all registered adapters
+    print("Step 1: Collecting data from all adapters...")
+    raw_docs = await collect_all(config)
+    if not raw_docs:
+        print("No data collected from adapters. Exiting.")
+        return
+    print(f"-> Collected {len(raw_docs)} raw documents from adapters.")
+
+    # 2. Coalesce/merge documents from different sources
+    print("\nStep 2: Merging and deduplicating documents...")
+    merged_docs = coalesce_docs(raw_docs)
+    print(f"-> Merged into {len(merged_docs)} unique races.")
+
+    # 3. Normalize the race documents
+    print("\nStep 3: Normalizing race data...")
+    normalized_races = [normalize_race_docs(doc) for doc in merged_docs.values()]
+    print(f"-> Normalized {len(normalized_races)} races.")
+
+    # 4. Score the normalized races
+    print("\nStep 4: Scoring races with the new analysis engine...")
+    scored_races = score_races(normalized_races)
+    print(f"-> Scored {len(scored_races)} races.")
+
+    # 5. Display a summary of the results
+    print("\n--- Pipeline Summary ---")
+    for race_key, score_result in scored_races.items():
+        print(f"Race: {race_key}, Score: {score_result.total:.2f}")
+        # print("  Reasons:", "; ".join(score_result.reasons))
+
+    logging.info("--- Full Adapter Pipeline Finished ---")
+
 def main_menu(config: Dict):
     """Displays the interactive main menu for the user."""
     app_name = config.get('APP_NAME', 'Paddock Parser Toolkit')
@@ -115,9 +161,9 @@ def main_menu(config: Dict):
         print(" 1. [Automated] Pre-Fetch Accessible Sources")
         print(" 2. [Manual]    Open Manual Collection Helper")
         print()
-        print("--- Data Processing ---")
-        print(" 3. [Deep Dive] Parse All Local Files (Batch Mode)")
-        print(" 4. [Deep Dive] Launch Persistent Engine (Live Paste)")
+        print("--- Data Processing (Legacy - Decommissioned) ---")
+        print(" 3. [DEPRECATED] Parse All Local Files (Batch Mode)")
+        print(" 4. [DEPRECATED] Launch Persistent Engine (Live Paste)")
         print()
         print("--- Other Tools ---")
         print(" 5. [Quick Strike] Run Fully Automated Scan")
@@ -126,6 +172,9 @@ def main_menu(config: Dict):
         print("--- Configuration ---")
         print(" 7. View Current Configuration")
         print(" 8. Validate Configuration")
+        print()
+        print("--- NEW Adapter Pipeline ---")
+        print(" 9. [V2 ENGINE] Run Full Adapter Pipeline")
         print()
         print(" Q. Quit")
         print("="*60)
@@ -143,34 +192,36 @@ def main_menu(config: Dict):
                 print(f"❌ Error launching link helper: {e}")
 
         elif choice == '3':
-            print("\n⚙️ Chaining Pre-Fetch and Parse for reliability...")
-            safe_async_run(run_batch_prefetch(config), "Pre-Fetch")
-            print("--- Pre-fetch complete. Now parsing local files... ---")
-            if check_prerequisites(config, 'parse'):
-                try:
-                    run_batch_parse(config, None)
-                    print("✅ Batch parsing completed successfully.")
-                except Exception as e:
-                    print(f"❌ An error occurred during the parsing phase: {e}")
-                    logging.error(f"Batch parse failed: {e}")
+            print("\nThis option is deprecated and will be removed. Please use the V2 Adapter Pipeline.")
+            # print("\n⚙️ Chaining Pre-Fetch and Parse for reliability...")
+            # safe_async_run(run_batch_prefetch(config), "Pre-Fetch")
+            # print("--- Pre-fetch complete. Now parsing local files... ---")
+            # if check_prerequisites(config, 'parse'):
+            #     try:
+            #         # run_batch_parse(config, None) # Decommissioned
+            #         print("✅ Batch parsing completed successfully.")
+            #     except Exception as e:
+            #         print(f"❌ An error occurred during the parsing phase: {e}")
+            #         logging.error(f"Batch parse failed: {e}")
 
         elif choice == '4':
-            print("\n📋 Launching Persistent Engine...")
-            print("   This will start the 'always-on' clipboard monitoring mode.")
-            print("   Press Ctrl+C in the engine to save and return to menu.")
-            confirm = input("   Continue? (Y/n): ").strip().lower()
+            print("\nThis option is deprecated and will be removed. Please use the V2 Adapter Pipeline.")
+            # print("\n📋 Launching Persistent Engine...")
+            # print("   This will start the 'always-on' clipboard monitoring mode.")
+            # print("   Press Ctrl+C in the engine to save and return to menu.")
+            # confirm = input("   Continue? (Y/n): ").strip().lower()
 
-            if confirm in ['y', '', 'yes']:
-                args = create_persistent_args()
-                try:
-                    run_persistent_engine(config, args)
-                except KeyboardInterrupt:
-                    print("\n✅ Persistent engine stopped. Returning to menu.")
-                except Exception as e:
-                    print(f"❌ Error in persistent engine: {e}")
-                    logging.error(f"Persistent engine failed: {e}")
-            else:
-                print("Operation cancelled.")
+            # if confirm in ['y', '', 'yes']:
+            #     args = create_persistent_args()
+            #     try:
+            #         # run_persistent_engine(config, args) # Decommissioned
+            #     except KeyboardInterrupt:
+            #         print("\n✅ Persistent engine stopped. Returning to menu.")
+            #     except Exception as e:
+            #         print(f"❌ Error in persistent engine: {e}")
+            #         logging.error(f"Persistent engine failed: {e}")
+            # else:
+            #     print("Operation cancelled.")
 
         elif choice == '5':
             safe_async_run(run_automated_scan(config, None), "Quick Strike Scan")
@@ -212,6 +263,9 @@ def main_menu(config: Dict):
                 print(f"ℹ️  Found {enabled_count} enabled data sources across {len(data_sources)} categories.")
             else:
                 print("❌ Configuration validation failed!")
+
+        elif choice == '9':
+            safe_async_run(run_adapter_pipeline(config), "V2 Adapter Pipeline")
 
         elif choice == 'Q':
             print("👋 Goodbye!")

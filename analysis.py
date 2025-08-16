@@ -1,105 +1,99 @@
-#!/usr/bin/env python3
-"""
-Paddock Parser Toolkit - Shared Analysis Module (analysis.py)
-
-NOTE TO SELF (The Constitution - The "Shared Intelligence" Gem):
-This module is a single source of truth for high-level analytical logic,
-like value scoring. By centralizing it here, both the desktop toolkit and
-the mobile alerting engine can use the exact same analytical brain, ensuring
-100% consistency and preventing logical drift.
-"""
-
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional
-
-# =============================================================================
-# DATA CLASSES (Required for the Scorer's type hints)
-# =============================================================================
+# analysis.py
+from dataclasses import dataclass
+from typing import Dict, List, Any
+from statistics import mean
+from normalizer import NormalizedRace # Import the new data structure
 
 @dataclass
-class Runner:
-    """Represents a single runner in a race with its odds."""
-    name: str
-    odds_str: str
-    odds_decimal: float
+class ScoreResult:
+    """Contains the final score and the individual signals that produced it."""
+    total: float
+    signals: Dict[str, float]
+    reasons: List[str]
 
-@dataclass
-class RaceData:
-    """Represents a single race, enriched with runner data and a value score."""
-    id: str
-    course: str
-    race_time: str
-    race_type: str
-    field_size: int
-    runners: List[Runner] = field(default_factory=list)
-    favorite: Optional[Runner] = None
-    second_favorite: Optional[Runner] = None
-    value_score: float = 0.0
-    # Add other fields as necessary if the scorer evolves
-    discipline: str = ""
-    race_url: str = ""
-    data_sources: List[str] = field(default_factory=list)
+# Default weights for combining signals into a final score.
+# These can be tuned over time.
+DEFAULT_WEIGHTS = {
+    "value_vs_sp": 0.35,
+    "steam_move": 0.25,
+    "market_consensus": 0.15,
+    "trainer_form": 0.10,
+    "jockey_uplift": 0.05,
+    "overlay_confidence": 0.10,
+}
 
+# "Track Personas" - allows for tuning signal weights based on the track.
+# For example, some tracks might be more sensitive to market steam.
+TRACK_PROFILES = {
+    "default": {"steam_sensitivity": 1.0, "min_conf": 0.5},
+    "ascot": {"steam_sensitivity": 1.2, "min_conf": 0.6},
+    # Add more track-specific profiles here over time
+}
 
-# =============================================================================
-# --- ENHANCED VALUE SCORER ---
-# =============================================================================
-
-class EnhancedValueScorer:
+def compute_signals(race: NormalizedRace, history=None) -> Dict[str, float]:
     """
-    Analyzes Field Size, Race Type, and the shape of the
-    Odds market to find structurally advantageous betting opportunities.
+    Computes a dictionary of raw signals for a given race.
+    This is where the core analytical logic lives.
+
+    (Currently uses placeholder logic as per the proposal)
     """
-    def __init__(self, config: Dict):
-        self.config = config
-        self.weights = config.get("SCORER_WEIGHTS", {
-            "FIELD_SIZE_WEIGHT": 0.35, "FAVORITE_ODDS_WEIGHT": 0.45,
-            "ODDS_SPREAD_WEIGHT": 0.15, "DATA_QUALITY_WEIGHT": 0.05
-        })
+    signals = {}
 
-    def calculate_score(self, race: RaceData) -> float:
-        """Calculates the final value score for a race."""
-        if not race.runners or not race.favorite:
-            return 0.0
+    # Example signal: Average "overlay" confidence.
+    # An overlay is when the odds seem higher than the fair price.
+    overlays = []
+    if race.runners:
+        for runner in race.runners:
+            if runner.odds_decimal and runner.odds_decimal > 1.0:
+                # Simplistic fair price proxy based on odds
+                fair_price = 1.0 / runner.odds_decimal
+                overlay = runner.odds_decimal - (1.0 / fair_price if fair_price > 0 else runner.odds_decimal)
+                overlays.append(overlay)
 
-        fav_odds = race.favorite.odds_decimal if race.favorite else 999.0
-        sec_fav_odds = race.second_favorite.odds_decimal if race.second_favorite else 999.0
+    signals["overlay_confidence"] = mean(overlays) if overlays else 0.0
 
-        base_score = (self._calculate_field_score(race.field_size) * self.weights["FIELD_SIZE_WEIGHT"] +
-                      self._calculate_favorite_odds_score(fav_odds) * self.weights["FAVORITE_ODDS_WEIGHT"] +
-                      self._calculate_odds_spread_score(fav_odds, sec_fav_odds) * self.weights["ODDS_SPREAD_WEIGHT"] +
-                      self._calculate_data_quality_score(race) * self.weights["DATA_QUALITY_WEIGHT"])
+    # Placeholder signals that would require historical data
+    signals["steam_move"] = 0.0  # Needs price history
+    signals["value_vs_sp"] = 0.0 # Needs Starting Price history
+    signals["market_consensus"] = 0.0
+    signals["trainer_form"] = 0.0
+    signals["jockey_uplift"] = 0.0
 
-        final_score = min(100.0, base_score)
-        return round(final_score, 2)
+    return signals
 
-    def _calculate_field_score(self, size: int) -> float:
-        if 3 <= size <= 5: return 100.0
-        if 6 <= size <= 8: return 85.0
-        if 9 <= size <= 12: return 60.0
-        return 20.0
+def apply_profile(track_key: str) -> Dict[str, Any]:
+    """
+    Applies a track-specific profile, falling back to the default.
+    """
+    for key, profile in TRACK_PROFILES.items():
+        if key != "default" and key in track_key:
+            return {**TRACK_PROFILES["default"], **profile}
+    return TRACK_PROFILES["default"]
 
-    def _calculate_favorite_odds_score(self, odds: float) -> float:
-        if odds == 999.0: return 20.0
-        if 1.0 <= odds <= 1.5: return 100.0
-        if 1.5 < odds <= 2.5: return 90.0
-        if 2.5 < odds <= 4.0: return 75.0
-        if 0.5 <= odds < 1.0: return 85.0
-        if odds < 0.5: return 60.0
-        return 40.0
+def score_race(race: NormalizedRace) -> ScoreResult:
+    """
+    Scores a single normalized race by computing signals and applying weights.
+    """
+    profile = apply_profile(race.track_key)
+    signals = compute_signals(race)
+    reasons = []
+    total_score = 0.0
 
-    def _calculate_odds_spread_score(self, fav_odds: float, sec_odds: float) -> float:
-        if fav_odds == 999.0 or sec_odds == 999.0: return 30.0
-        spread = sec_odds - fav_odds
-        if spread >= 2.0: return 100.0
-        if spread >= 1.5: return 90.0
-        if spread >= 1.0: return 80.0
-        if spread >= 0.5: return 60.0
-        return 40.0
+    for signal_name, weight in DEFAULT_WEIGHTS.items():
+        signal_value = signals.get(signal_name, 0.0)
 
-    def _calculate_data_quality_score(self, race: RaceData) -> float:
-        score = 0.0
-        if race.runners and any(r.odds_str not in ["SP", "", "NR", "SCR"] for r in race.runners): score += 50.0
-        if race.favorite and race.second_favorite: score += 30.0
-        if race.race_url: score += 20.0
-        return min(100.0, score)
+        # Apply track-specific modifications
+        if signal_name == "steam_move":
+            signal_value *= profile["steam_sensitivity"]
+
+        total_score += weight * signal_value
+        reasons.append(f"{signal_name}={signal_value:.3f} * w={weight:.2f}")
+
+    return ScoreResult(total=total_score, signals=signals, reasons=reasons)
+
+def score_races(races: List[NormalizedRace]) -> Dict[str, ScoreResult]:
+    """
+    Takes a list of normalized races and returns a dictionary of their scores,
+    keyed by race_key.
+    """
+    return {race.race_key: score_race(race) for race in races}
