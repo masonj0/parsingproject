@@ -157,8 +157,6 @@ class TimeformAdapter:
         logging.info("Successfully created a dummy RawRaceDocument from Timeform.")
         return [dummy_race]
 
-
-
 # - Helper Function for Filename Sanitization -
 def sanitize_filename(name: str) -> str:
     """Cleans a string to be a valid filename."""
