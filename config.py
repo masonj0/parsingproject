@@ -2,6 +2,15 @@
 import json
 import logging
 import sys
+"""
+Paddock Parser Toolkit - Configuration Loader (config.py)
+
+This module is responsible for loading the central `config.json` file.
+By centralizing this logic, we ensure that every part of the application,
+from the main entry point to the individual parsers, uses the exact same
+set of configurations.
+"""
+
 from pathlib import Path
 from typing import Dict, Any
 
