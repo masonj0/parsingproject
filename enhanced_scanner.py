@@ -103,6 +103,10 @@ class TimeformAdapter:
                 saddle_cloth_el = row.select_one("td.rp-td-horse-entry span.rp-entry-number")
                 jockey_el = row.select_one("td.rp-td-horse-jockey a")
                 trainer_el = row.select_one("td.rp-td-horse-trainer a")
+                odds_el = row.select_one("td.rp-td-horse-prices a.price")
+
+                # Odds are important for the analysis engine, but we can proceed without them
+                # if they are not available for a particular runner.
 
                 if not all([horse_name_el, saddle_cloth_el, jockey_el, trainer_el]):
                     missing = [
@@ -119,12 +123,18 @@ class TimeformAdapter:
                 jockey_name = jockey_el.get_text(strip=True)
                 trainer_name = trainer_el.get_text(strip=True)
 
+                odds = None
+                if odds_el and odds_el.has_attr('data-price'):
+                    odds_val = odds_el['data-price']
+                    odds = FieldConfidence(odds_val, 0.9, "td.rp-td-horse-prices a.price[data-price]")
+
                 runner_id = f"{saddle_cloth}-{horse_name}".lower().replace(" ", "-")
 
                 runners.append(RunnerDoc(
                     runner_id=runner_id,
                     name=FieldConfidence(horse_name, 0.95, "td.rp-td-horse-name a.rp-horse"),
                     number=FieldConfidence(saddle_cloth, 0.95, "td.rp-td-horse-entry span.rp-entry-number"),
+                    odds=odds,
                     jockey=FieldConfidence(jockey_name, 0.9, "td.rp-td-horse-jockey a"),
                     trainer=FieldConfidence(trainer_name, 0.9, "td.rp-td-horse-trainer a")
                 ))
@@ -197,6 +207,15 @@ class TimeformAdapter:
                 logging.info(f"Fetching detail for race: {doc.race_key} at {race_url}")
                 detail_response = await resilient_get(race_url, config=config)
                 detail_soup = BeautifulSoup(detail_response.text, 'lxml')
+
+                # Parse runners and add them to the document
+                doc.runners = self._parse_runner_data(detail_soup)
+                logging.info(f"-> Found {len(doc.runners)} runners for race {doc.race_key}")
+
+            except Exception as e:
+                logging.error(f"Failed to fetch or parse detail for race {doc.race_key}: {e}")
+
+        return race_docs
 
                 # Parse runners and add them to the document
                 doc.runners = self._parse_runner_data(detail_soup)
