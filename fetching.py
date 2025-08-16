@@ -156,6 +156,12 @@ async def breadcrumb_get(
             headers.update(extra_headers)
 
         logging.info(f"Breadcrumb step {i+1}: Navigating to {url}")
+
+        # The resilient_get function handles adding stealth headers from config.
+        # We can pass any extra, request-specific headers if needed, but the
+        # resilient_get function does not currently accept them.
+        # For now, we will rely on the global headers and stealth features.
+
         # Here, we pass the combined headers to resilient_get.
         # resilient_get will then add its own stealth headers on top.
         # This isn't ideal, as headers could be overwritten.
@@ -163,9 +169,85 @@ async def breadcrumb_get(
         # For now, this will work. Let's refine later if needed.
         # This is a note for myself, not to be included in the code.
         # The logic in resilient_get already handles adding headers, so just call it.
+
         last_response = await resilient_get(url, config=config)
 
         # Human-like pause between navigation steps
         await asyncio.sleep(random.uniform(0.7, 2.0))
 
     return last_response
+
+async def bootstrap_session_with_playwright(
+    url: str,
+    wait_selector: str = "body",
+    timeout_ms: int = 15000
+) -> bool:
+    """
+    Uses Playwright to initialize a session, then transfers the cookies
+    to the shared httpx client. This is for heavily protected sites.
+    """
+    logging.info(f"Bootstrapping session for {url} with Playwright...")
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        logging.error("Playwright is not installed. Cannot bootstrap session.")
+        return False
+
+    try:
+        async with async_playwright() as pw:
+            browser = await pw.chromium.launch(headless=True)
+            context = await browser.new_context()
+            page = await context.new_page()
+            await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
+            await page.wait_for_selector(wait_selector, timeout=timeout_ms)
+
+            cookies = await context.cookies()
+            await browser.close()
+
+        if not cookies:
+            logging.warning("Playwright did not capture any cookies.")
+            return False
+
+        # Get the shared client and inject the cookies
+        client = get_shared_async_client()
+        for c in cookies:
+            client.cookies.set(
+                name=c["name"],
+                value=c["value"],
+                domain=c.get("domain"),
+                path=c.get("path", "/")
+            )
+        logging.info(f"Successfully bootstrapped session and transferred {len(cookies)} cookies.")
+        return True
+    except Exception as e:
+        logging.error(f"Playwright session bootstrapping failed: {e}")
+        return False
+
+
+async def fetch_with_favicon(
+    base_url: str,
+    target_url: str,
+    config: dict
+):
+    """
+    Fetches the target URL and the site's favicon concurrently,
+    which can appear more like a real browser.
+    """
+    client = get_shared_async_client()
+    favicon_url = f"{base_url.rstrip('/')}/favicon.ico"
+
+    logging.info(f"Fetching {target_url} with favicon...")
+
+    # We only care about the result of the target_url fetch
+    results = await asyncio.gather(
+        resilient_get(favicon_url, config),
+        resilient_get(target_url, config),
+        return_exceptions=True
+    )
+
+    # Check for errors in the target_url fetch
+    target_result = results[1]
+    if isinstance(target_result, Exception):
+        raise target_result
+
+    return target_result
