@@ -199,6 +199,14 @@ def main_menu(config: Dict):
 # ... (CLI functions can be removed or updated later, focusing on the menu for now)
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Paddock Parser Toolkit v2.0 - Main Entry Point")
+    parser.add_argument(
+        "--v2",
+        action="store_true",
+        help="Run the full V2 adapter pipeline directly without the interactive menu."
+    )
+    args = parser.parse_args()
+
     try:
         CONFIG = load_config()
         if not CONFIG:
@@ -207,8 +215,12 @@ if __name__ == "__main__":
         logging.info(f"Starting {CONFIG.get('APP_NAME', 'Paddock Parser Toolkit')} v2.0")
         if not validate_config(CONFIG):
             sys.exit(1)
-        if len(sys.argv) > 1:
-            print("CLI mode has been simplified in v2. Please use the interactive menu.")
+
+        if args.v2:
+            safe_async_run(run_adapter_pipeline(CONFIG), "V2 Adapter Pipeline")
+        elif len(sys.argv) > 1:
+            # This case handles any other arguments that are not the menu
+            parser.print_help()
         else:
             main_menu(CONFIG)
     except KeyboardInterrupt:

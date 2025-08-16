@@ -24,10 +24,11 @@ from typing import Dict, Any, List, Optional
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from bs4 import BeautifulSoup
 import re
+import random
 import unicodedata
 import hashlib # <-- Added import for hash-based ID generation if needed
 import datetime as dt
-from fetching import breadcrumb_get, fetch_with_favicon
+from fetching import breadcrumb_get, fetch_with_favicon, resilient_get
 from sources import (
     SourceAdapter,
     RawRaceDocument,
@@ -77,7 +78,9 @@ def build_httpx_client_kwargs(config: Dict) -> Dict[str, Any]:
 class TimeformAdapter:
     """
     Adapter for fetching racecards from Timeform.
-    Uses breadcrumb navigation to appear more human.
+    This adapter performs a two-stage fetch:
+    1. Fetches the main racecards page to get a list of all races.
+    2. Fetches the individual page for each race to get runner details.
     """
     source_id = "timeform"
 
@@ -89,10 +92,50 @@ class TimeformAdapter:
                     return site
         return None
 
+    def _parse_runner_data(self, race_soup: BeautifulSoup) -> List[RunnerDoc]:
+        """Parses the runner data from a single race page using the correct selectors."""
+        runners = []
+        runner_rows = race_soup.select("tbody.rp-horse-row")
+
+        for row in runner_rows:
+            try:
+                horse_name_el = row.select_one("td.rp-td-horse-name a.rp-horse")
+                saddle_cloth_el = row.select_one("td.rp-td-horse-entry span.rp-entry-number")
+                jockey_el = row.select_one("td.rp-td-horse-jockey a")
+                trainer_el = row.select_one("td.rp-td-horse-trainer a")
+
+                if not all([horse_name_el, saddle_cloth_el, jockey_el, trainer_el]):
+                    missing = [
+                        "name" if not horse_name_el else None,
+                        "number" if not saddle_cloth_el else None,
+                        "jockey" if not jockey_el else None,
+                        "trainer" if not trainer_el else None
+                    ]
+                    logging.warning(f"Skipping a runner row, missing elements: {[m for m in missing if m]}")
+                    continue
+
+                horse_name = horse_name_el.get_text(strip=True)
+                saddle_cloth = saddle_cloth_el.get_text(strip=True)
+                jockey_name = jockey_el.get_text(strip=True)
+                trainer_name = trainer_el.get_text(strip=True)
+
+                runner_id = f"{saddle_cloth}-{horse_name}".lower().replace(" ", "-")
+
+                runners.append(RunnerDoc(
+                    runner_id=runner_id,
+                    name=FieldConfidence(horse_name, 0.95, "td.rp-td-horse-name a.rp-horse"),
+                    number=FieldConfidence(saddle_cloth, 0.95, "td.rp-td-horse-entry span.rp-entry-number"),
+                    jockey=FieldConfidence(jockey_name, 0.9, "td.rp-td-horse-jockey a"),
+                    trainer=FieldConfidence(trainer_name, 0.9, "td.rp-td-horse-trainer a")
+                ))
+            except Exception as e:
+                logging.error(f"Failed to parse a runner row on Timeform: {e}", exc_info=True)
+        return runners
+
     async def fetch(self, config: dict) -> list[RawRaceDocument]:
         """
-        Fetches the Timeform racecards page and parses the data
-        to extract race information.
+        Fetches the Timeform racecards page, then fetches each individual
+        race page to extract detailed runner information.
         """
         site_config = self._find_site_config(config)
         if not site_config:
@@ -106,88 +149,63 @@ class TimeformAdapter:
             logging.error("Timeform base_url or url not configured.")
             return []
 
-        # Use breadcrumb and favicon navigation to fetch the page
-        logging.info("Fetching Timeform data using the new adapter...")
-        scraper_config = config.get("SCRAPER", {})
+        # 1. Fetch the main race list page
+        logging.info("Fetching Timeform race list...")
         try:
-            if scraper_config.get("ENABLE_FAVICON_PREFETCH"):
-                logging.info("...with favicon psychology.")
-                response = await fetch_with_favicon(base_url, target_url, config)
-            else:
-                response = await breadcrumb_get(urls=[base_url, target_url], config=config)
-
-            if not response:
-                logging.error("Failed to fetch Timeform data.")
-                return []
-            html_content = response.text
+            list_response = await resilient_get(target_url, config=config)
+            list_html = list_response.text
         except Exception as e:
-            logging.error(f"An error occurred while fetching Timeform: {e}")
+            logging.error(f"An error occurred while fetching Timeform race list: {e}")
             return []
 
-        # --- Save the fetched content to a file ---
-        input_dir = Path(config.get("INPUT_DIR", "html_input"))
-        input_dir.mkdir(exist_ok=True, parents=True)
-        filename = sanitize_filename(site_config['name']) + ".html"
-        output_path = input_dir / filename
-        try:
-            with open(output_path, "w", encoding="utf-8") as f:
-                f.write(html_content)
-            logging.info(f"ADAPTER_SUCCESS: Saved '{site_config['name']}' to {output_path}")
-        except Exception as e:
-            logging.error(f"ADAPTER_ERROR: Failed to write file for '{site_config['name']}': {e}")
-
-        # --- Real Parsing Logic ---
-        logging.info("Parsing Timeform HTML...")
-        soup = BeautifulSoup(html_content, 'lxml')
-        races = []
-
+        # 2. Parse the race list to get individual race URLs
+        soup = BeautifulSoup(list_html, 'lxml')
+        race_docs = []
         meeting_containers = soup.select(".w-racecard-grid-meeting")
-        logging.info(f"Found {len(meeting_containers)} meeting containers.")
 
         for meeting in meeting_containers:
+            course_name = meeting.select_one("h2").get_text(strip=True)
+            track_key = canonical_track_key(course_name)
+
+            for item in meeting.select(".w-racecard-grid-meeting-races-compact li a"):
+                href = item.get('href')
+                if not href: continue
+
+                race_time_str = item.select_one("b").get_text(strip=True)
+                race_num_match = re.search(r'/(\d+)/?$', href)
+                race_num = race_num_match.group(1) if race_num_match else race_time_str.replace(":", "")
+
+                race_docs.append(RawRaceDocument(
+                    source_id=self.source_id,
+                    fetched_at=dt.datetime.now(dt.timezone.utc).isoformat(),
+                    track_key=track_key,
+                    race_key=canonical_race_key(track_key, race_num),
+                    start_time_iso=f"{date.today().isoformat()}T{race_time_str}:00Z",
+                    runners=[],
+                    extras={"race_url": FieldConfidence(f"https://www.timeform.com{href}", 0.95, "a[href]")}
+                ))
+
+        # 3. Fetch each individual race page to get runner data
+        logging.info(f"Found {len(race_docs)} races. Now fetching individual pages for runner data...")
+        for doc in race_docs:
             try:
-                header = meeting.select_one(".w-racecard-grid-meeting-header")
-                course_name_element = header.select_one("h2")
-                if not course_name_element:
-                    continue
+                race_url = doc.extras["race_url"].value
+                if not race_url: continue
 
-                course_name = course_name_element.get_text(strip=True)
-                track_key = canonical_track_key(course_name)
+                await asyncio.sleep(random.uniform(1, 3)) # Respectful delay
 
-                race_items = meeting.select(".w-racecard-grid-meeting-races-compact li")
-                for item in race_items:
-                    time_element = item.select_one("b")
-                    link_element = item.select_one("a")
-                    if not time_element or not link_element:
-                        continue
+                logging.info(f"Fetching detail for race: {doc.race_key} at {race_url}")
+                detail_response = await resilient_get(race_url, config=config)
+                detail_soup = BeautifulSoup(detail_response.text, 'lxml')
 
-                    race_time_str = time_element.get_text(strip=True)
-                    href = link_element.get('href', '')
-                    # Extract race number from URL for a more stable key
-                    race_num_match = re.search(r'/(\d+)/?$', href)
-                    race_num = race_num_match.group(1) if race_num_match else race_time_str.replace(":", "")
+                # Parse runners and add them to the document
+                doc.runners = self._parse_runner_data(detail_soup)
+                logging.info(f"-> Found {len(doc.runners)} runners for race {doc.race_key}")
 
-                    race_key = canonical_race_key(track_key, race_num)
-
-                    # Runner details are not on this page, so we create a race document with no runners.
-                    # A more advanced implementation would fetch the race_url to get runner details.
-                    races.append(RawRaceDocument(
-                        source_id=self.source_id,
-                        fetched_at=dt.datetime.now(dt.timezone.utc).isoformat(),
-                        track_key=track_key,
-                        race_key=race_key,
-                        start_time_iso=f"{date.today().isoformat()}T{race_time_str}:00Z",
-                        runners=[],
-                        extras={
-                            "race_title": FieldConfidence(link_element.get('title', ''), 0.8, "a[title]"),
-                            "race_url": FieldConfidence(f"https://www.timeform.com{href}", 0.95, "a[href]")
-                        }
-                    ))
             except Exception as e:
-                logging.error(f"Error parsing a Timeform meeting container: {e}", exc_info=True)
+                logging.error(f"Failed to fetch or parse detail for race {doc.race_key}: {e}")
 
-        logging.info(f"Successfully parsed {len(races)} races from Timeform.")
-        return races
+        return race_docs
 
 
 
